@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 禁用 Git Bash/MSYS2 的路径自动转换，防止 docker exec 中的绝对路径被转换为 Windows 路径
+export MSYS_NO_PATHCONV=1
+
 # 日志文件配置
 LOG_DIR="test/test-log"
 LOG_FILE="$LOG_DIR/test-spark-$(date +%Y%m%d-%H%M%S).log"
@@ -25,6 +28,18 @@ if [ -f "$ENV_CONF" ]; then
 else
     echo "警告: 环境配置文件不存在，使用默认版本 3.1.1"
     SPARK_VERSION="3.1.1"
+fi
+echo
+
+# 检测 Hadoop 环境（HA 或 非HA）
+if docker ps --format "{{.Names}}" 2>/dev/null | grep -q "namenode1"; then
+    HADOOP_HA=true
+    NAMENODE_CONTAINER="namenode1"
+    echo "检测到 Hadoop HA 模式 (namenode: $NAMENODE_CONTAINER)"
+else
+    HADOOP_HA=false
+    NAMENODE_CONTAINER="namenode"
+    echo "检测到 Hadoop 标准 模式 (namenode: $NAMENODE_CONTAINER)"
 fi
 echo
 
@@ -89,12 +104,13 @@ docker cp /tmp/spark-test.csv spark-master:/tmp/spark-test.csv
 
 # 检查 HDFS 可用性
 echo "5.3 检查 HDFS 可用性..."
-hdfs_available=$(docker exec namenode hdfs dfs -test -d / 2>/dev/null && echo "true" || echo "false")
+hdfs_available=$(docker exec $NAMENODE_CONTAINER hdfs dfs -test -d / 2>/dev/null && echo "true" || echo "false")
 if [ "$hdfs_available" = "true" ]; then
     echo "✓ HDFS 可用"
     # 上传测试数据到 HDFS
-    docker exec namenode hdfs dfs -mkdir -p /test/spark/input 2>/dev/null
-    docker exec namenode hdfs dfs -put /tmp/spark-test.csv /test/spark/input/ 2>/dev/null
+    docker exec $NAMENODE_CONTAINER hdfs dfs -mkdir -p /test/spark/input 2>/dev/null
+    docker cp /tmp/spark-test.csv $NAMENODE_CONTAINER:/tmp/spark-test.csv
+    docker exec $NAMENODE_CONTAINER hdfs dfs -put -f /tmp/spark-test.csv /test/spark/input/ 2>/dev/null
     echo "✓ 测试数据已上传到 HDFS"
     data_path="hdfs:///test/spark/input/spark-test.csv"
 else
@@ -122,7 +138,7 @@ echo "6. 测试 Spark on YARN 模式..."
 
 # 检查 YARN 资源管理器状态
 echo "6.1 检查 YARN 资源管理器状态..."
-yarn_nodes_output=$(docker exec namenode yarn node -list 2>/dev/null)
+yarn_nodes_output=$(docker exec $NAMENODE_CONTAINER yarn node -list 2>/dev/null)
 if echo "$yarn_nodes_output" | grep -q "Total Nodes"; then
     yarn_nodes=$(echo "$yarn_nodes_output" | grep "Total Nodes" | awk -F: '{print $2}' | awk '{print $1}' | tr -d '[:space:]')
     echo "✓ YARN 资源管理器正常，总节点数: $yarn_nodes"
@@ -220,7 +236,7 @@ fi
 # 清理测试数据
 echo "9. 清理测试数据..."
 if [ "$hdfs_available" = "true" ]; then
-    docker exec namenode hdfs dfs -rm -r -f /test/spark 2>/dev/null
+    docker exec $NAMENODE_CONTAINER hdfs dfs -rm -r -f /test/spark 2>/dev/null
 fi
 rm -f /tmp/spark-test.csv /tmp/spark-sql-test.scala
 

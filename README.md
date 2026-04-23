@@ -26,7 +26,8 @@
 
 | 组件 | 容器数量 | 服务 | 容器主机名 | 说明 |
 |------|---------|------|------------|------|
-| **Hadoop** | 3个 | NameNode + 2 DataNode + ResourceManager + 2 NodeManager | `hadoop-namenode-1`, `hadoop-datanode-1`, `hadoop-datanode-2` | 标准或高可用配置 |
+| **Hadoop** | 3个 | NameNode + 2 DataNode + ResourceManager + 2 NodeManager | `hadoop-namenode-1`, `hadoop-datanode-1`, `hadoop-datanode-2` | 标准配置 |
+| **Hadoop HA** | 7个 | 2 NameNode + 2 DataNode + 3 JournalNode + ResourceManager + 2 NodeManager | `namenode1`, `namenode2`, `datanode1`, `datanode2`, `journalnode1`, `journalnode2`, `journalnode3` | 高可用配置 |
 | **ZooKeeper** | 3个 | 3节点高可用集群 | `zookeeper-1`, `zookeeper-2`, `zookeeper-3` | 协调服务 |
 | **HBase** | 3个 | HMaster + 2 RegionServer | `hbase-master-1`, `hbase-regionserver-1`, `hbase-regionserver-2` | NoSQL数据库 |
 | **Hive** | 2个 | Metastore + HiveServer2 | `hive-metastore-1`, `hive-server2-1` | 数据仓库 |
@@ -36,7 +37,7 @@
 | **Flume** | 1个 | Agent | `flume-agent-1` | 数据采集 |
 | **MySQL** | 1个 | 数据库服务器 | `mysql-server-1` | Hive元数据存储 |
 
-**总容器数**：约 20个容器  
+**总容器数**：约 27个容器  
 **适用场景**：组件学习、独立调试、开发测试
 
 #### 架构二：5节点全栈集群（推荐生产/集成）
@@ -54,6 +55,39 @@
 **适用场景**：集成测试、生产模拟、性能优化
 
 ## 🚀 架构一：单组件独立集群部署
+
+### 使用 CLI 工具管理（推荐）
+
+本项目提供了 `bigdata-cli.sh` 命令行管理工具，支持交互式菜单和命令行两种模式，可一键完成镜像构建、容器部署和功能测试。
+
+```bash
+# 交互式菜单模式（推荐新手使用）
+./bigdata-cli.sh
+
+# 命令行模式 - 构建镜像
+./bigdata-cli.sh build hadoop-ha
+
+# 命令行模式 - 启动容器
+./bigdata-cli.sh start hadoop-ha
+
+# 命令行模式 - 测试功能
+./bigdata-cli.sh test hadoop-ha
+
+# 按依赖顺序一键部署所有组件
+./bigdata-cli.sh build zookeeper && ./bigdata-cli.sh start zookeeper
+./bigdata-cli.sh build hadoop-ha  && ./bigdata-cli.sh start hadoop-ha
+./bigdata-cli.sh build mysql      && ./bigdata-cli.sh start mysql
+./bigdata-cli.sh build hbase      && ./bigdata-cli.sh start hbase
+./bigdata-cli.sh build hive       && ./bigdata-cli.sh start hive
+./bigdata-cli.sh build kafka      && ./bigdata-cli.sh start kafka
+./bigdata-cli.sh build spark      && ./bigdata-cli.sh start spark
+./bigdata-cli.sh build flink      && ./bigdata-cli.sh start flink
+./bigdata-cli.sh build flume      && ./bigdata-cli.sh start flume
+```
+
+> 详细用法请参考 [CLI_USAGE.md](CLI_USAGE.md)
+
+### 手动部署
 
 ### 1. 环境准备
 ```bash
@@ -97,6 +131,7 @@ docker build -f dockerfile.mysql -t bigdata-mysql:latest .
 | **ZooKeeper** | - | 2181 | `docker-compose -f docker-compose.zookeeper.yml up -d` | 无依赖 |
 | **Hadoop HDFS** | http://localhost:9870 | 9870 | `docker-compose -f docker-compose.hadoop.yml up -d` | 依赖ZooKeeper |
 | **Hadoop YARN** | http://localhost:8088 | 8088 | `docker-compose -f docker-compose.hadoop.yml up -d` | 依赖HDFS |
+| **Hadoop HA HDFS** | http://localhost:19870 | 19870 | `docker-compose -f docker-compose.hadoop-ha.yml up -d` | 依赖ZooKeeper |
 | **MySQL** | - | 3306 | `docker-compose -f docker-compose.mysql.yml up -d` | 无依赖 |
 | **HBase** | http://localhost:16010 | 16010 | `docker-compose -f docker-compose.hbase.yml up -d` | 依赖HDFS+ZooKeeper |
 | **Hive** | http://localhost:10002 | 10002 | `docker-compose -f docker-compose.hive.yml up -d` | 依赖HDFS+MySQL |
@@ -109,6 +144,7 @@ docker build -f dockerfile.mysql -t bigdata-mysql:latest .
 ```bash
 # 单独测试各组件
 ./test/test-hadoop.sh        # Hadoop功能测试
+./test/test-hadoop-ha.sh     # Hadoop高可用功能测试
 ./test/test-hbase.sh         # HBase功能测试
 ./test/test-hive.sh          # Hive功能测试
 ./test/test-zookeeper.sh     # ZooKeeper功能测试
@@ -116,6 +152,7 @@ docker build -f dockerfile.mysql -t bigdata-mysql:latest .
 ./test/test-spark.sh         # Spark功能测试
 ./test/test-flink.sh         # Flink功能测试
 ./test/test-flume.sh         # Flume功能测试
+./test/test-mysql.sh         # MySQL功能测试
 
 # 测试Flume与Kafka联动
 ./test/test-flume-kafka.sh
@@ -589,13 +626,6 @@ Bigdata/
 │   └── update-dockerfile-versions.sh  # 版本同步脚本
 ├── test/                     # 测试脚本目录
 │   ├── cluster-test.sh           # 5节点全栈集群完整测试
-│   ├── cluster_test/             # 集群测试子模块
-│   │   ├── main_test.sh          # 主测试脚本
-│   │   ├── test_hdfs.sh          # HDFS功能测试
-│   │   ├── test_hbase.sh         # HBase功能测试
-│   │   ├── test_hive.sh          # Hive功能测试
-│   │   ├── test_zookeeper.sh     # ZooKeeper功能测试
-│   │   └── test_flink.sh         # Flink功能测试
 │   ├── test-hadoop.sh            # Hadoop独立测试
 │   ├── test-hadoop-ha.sh         # Hadoop高可用测试
 │   ├── test-hbase.sh             # HBase独立测试
@@ -604,8 +634,9 @@ Bigdata/
 │   ├── test-spark.sh             # Spark独立测试
 │   ├── test-flink.sh             # Flink独立测试
 │   ├── test-flume.sh             # Flume独立测试
-│   ├── test-zookeeper.sh         # ZooKeeper独立测试
 │   ├── test-flume-kafka.sh       # Flume-Kafka联动测试
+│   ├── test-mysql.sh             # MySQL独立测试
+│   ├── test-zookeeper.sh         # ZooKeeper独立测试
 │   └── *.md                      # 测试文档说明
 ├── module/                   # 组件安装包目录
 │   ├── hadoop-3.1.3.tar.gz          # Hadoop安装包
@@ -640,6 +671,7 @@ Bigdata/
 ├── docker-compose.zookeeper.yml         # ZooKeeper集群编排文件
 ├── docker-compose.mysql.yml             # MySQL服务编排文件
 ├── docker-compose.flume.yml             # Flume服务编排文件
+├── bigdata-cli.sh            # 命令行管理工具（交互式菜单+命令行模式）
 ├── README.md                # 项目主文档
 └── Todo.md                  # 开发任务清单
 ```

@@ -1,62 +1,41 @@
+# ===============================================
+# MySQL服务Docker Compose配置文件
+# 作用：定义MySQL数据库服务的容器编排配置
+# 原理：使用Docker Compose编排MySQL服务，为Hive等组件提供元数据存储
+# 依赖：无依赖，属于基础服务
+# ===============================================
+
+version: '3.8'
+
 services:
-  hive-metastore:
-    image: bigdata-hive:latest
-    container_name: hive-metastore
-    hostname: hive-metastore
+  # ===============================================
+  # MySQL服务配置
+  # 作用：为Hive等大数据组件提供关系型数据库支持
+  # 原理：存储Hive元数据、用户权限等结构化信息
+  # 端口映射：3306是MySQL的标准服务端口
+  # ===============================================
+  mysql:
+    image: bigdata-mysql:latest
+    container_name: mysql
+    hostname: mysql
     ports:
-      - "19083:9083"  # Hive Metastore
+      - "3307:3306"
     volumes:
-      - ./data/hive/metastore:/opt/hive/logs
-      - ./config/hive:/config/hive
-      - ./config/hadoop:/config/hadoop
-      - ./config/hadoop-ha:/config/hadoop-ha
+      - mysql_data:/var/lib/mysql
+      - ./config/mysql/my.cnf:/etc/mysql/my.cnf
       - ./config/environment.conf:/config/environment.conf:ro
     environment:
-      - HADOOP_ENVIRONMENT=standard
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=hive
+      - MYSQL_USER=hive
+      - MYSQL_PASSWORD=hive
     networks:
       bigdata-net:
         aliases:
-          - hive-metastore
+          - mysql
 
-  hive-server2:
-    image: bigdata-hive:latest
-    container_name: hive-server2
-    hostname: hive-server2
-    ports:
-      - "11000:10000"  # Hive Server2
-      - "11002:10002"  # Hive Web UI
-    volumes:
-      - ./data/hive/server2:/opt/hive/logs
-      - ./config/hive:/config/hive
-      - ./config/hadoop:/config/hadoop
-      - ./config/hadoop-ha:/config/hadoop-ha
-      - ./config/environment.conf:/config/environment.conf:ro
-    environment:
-      - HADOOP_ENVIRONMENT=standard
-    networks:
-      bigdata-net:
-    depends_on:
-      - hive-metastore
-
-  hive-cli:
-    image: bigdata-hive:latest
-    container_name: hive-cli
-    hostname: hive-cli
-    volumes:
-      - ./data/hive/cli:/opt/hive/logs
-      - ./config/hive:/config/hive
-      - ./config/hadoop:/config/hadoop
-      - ./config/hadoop-ha:/config/hadoop-ha
-      - ./config/environment.conf:/config/environment.conf:ro
-    environment:
-      - HADOOP_ENVIRONMENT=standard
-    networks:
-      bigdata-net:
-    depends_on:
-      - hive-metastore
-      - hive-server2
-    stdin_open: true
-    tty: true
+volumes:
+  mysql_data:
 
 networks:
   bigdata-net:

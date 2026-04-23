@@ -16,7 +16,7 @@ version: '3.8'
 
 x-kafka-broker: &kafka-broker
   image: bigdata-kafka:latest
-  entrypoint: /opt/kafka/bin/kafka-server-start.sh
+  entrypoint: /usr/local/bin/kafka-entrypoint.sh
   networks:
     - bigdata-net
 

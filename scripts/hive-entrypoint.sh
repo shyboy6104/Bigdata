@@ -116,16 +116,18 @@ done
 /opt/hadoop/bin/hdfs dfs -chmod 777 /tmp/hive
 
 # 初始化Hive元数据存储（带错误阻断机制）
-echo "Initializing Hive metastore..."
-if $HIVE_HOME/bin/schematool -info -dbType mysql 2>/dev/null; then
-    echo "Hive metastore schema already exists, skipping initialization..."
-else
-    echo "Initializing Hive metastore schema..."
-    $HIVE_HOME/bin/schematool -initSchema -dbType mysql
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to initialize Hive Metastore Schema!"
-        echo "Please check MySQL connection and privileges."
-        exit 1
+if [[ "$HOSTNAME" == *"metastore"* ]]; then
+    echo "Initializing Hive metastore..."
+    if $HIVE_HOME/bin/schematool -info -dbType mysql 2>/dev/null; then
+        echo "Hive metastore schema already exists, skipping initialization..."
+    else
+        echo "Initializing Hive metastore schema..."
+        $HIVE_HOME/bin/schematool -initSchema -dbType mysql
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to initialize Hive Metastore Schema!"
+            echo "Please check MySQL connection and privileges."
+            exit 1
+        fi
     fi
 fi
 

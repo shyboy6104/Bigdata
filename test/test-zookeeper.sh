@@ -60,7 +60,7 @@ check_command() {
 # 函数：检查Docker容器是否运行
 check_container() {
     local container_name=$1
-    if docker ps | grep -q "$container_name"; then | tee -a "$LOG_FILE"
+    if docker ps | grep -q "$container_name"; then
         return 0
     else
         return 1
@@ -97,7 +97,7 @@ all_running=true
 for i in 1 2 3; do
     container_name="zoo$i"
     if check_container "$container_name"; then
-        container_status=$(docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "$container_name") | tee -a "$LOG_FILE"
+        container_status=$(docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "$container_name")
         print_success "$container_name: 运行中"
         echo "   $container_status"
     else
@@ -382,12 +382,12 @@ for i in 1 2 3; do
     
     # 检查配置文件
     if docker exec "$container_name" test -f "/opt/zookeeper/conf/zoo.cfg"; then
-        config_nodes=$(docker exec "$container_name" cat /opt/zookeeper/conf/zoo.cfg 2>/dev/null | grep "^server" | wc -l) | tee -a "$LOG_FILE"
+        config_nodes=$(docker exec "$container_name" cat /opt/zookeeper/conf/zoo.cfg 2>/dev/null | grep "^server" | wc -l)
         if [ "$config_nodes" -eq 3 ]; then
             print_success "     - 配置节点数: 3 (正常)"
             
             # 显示配置的服务器列表
-            servers=$(docker exec "$container_name" cat /opt/zookeeper/conf/zoo.cfg 2>/dev/null | grep "^server") | tee -a "$LOG_FILE"
+            servers=$(docker exec "$container_name" cat /opt/zookeeper/conf/zoo.cfg 2>/dev/null | grep "^server")
             echo "     - 服务器配置:"
             echo "$servers" | while read -r server; do
                 echo "       $server"
@@ -417,7 +417,7 @@ for i in 1 2 3; do
     
     # 检查数据目录
     if docker exec "$container_name" test -d "/opt/zookeeper/data"; then
-        data_files=$(docker exec "$container_name" ls -la /opt/zookeeper/data/ 2>/dev/null | grep -v "^total" | wc -l) | tee -a "$LOG_FILE"
+        data_files=$(docker exec "$container_name" ls -la /opt/zookeeper/data/ 2>/dev/null | grep -v "^total" | wc -l)
         if [ "$data_files" -gt 2 ]; then
             print_success "     - 数据目录: 正常 ($data_files 个文件)"
         else

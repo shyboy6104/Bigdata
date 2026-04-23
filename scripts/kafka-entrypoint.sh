@@ -59,11 +59,55 @@ fi
 echo "Starting Kafka node $NODE_ID with config $CONFIG_FILE..."
 
 # ===============================================
-# Kafka服务启动
-# 作用：启动Kafka Broker服务进程
-# 原理：使用kafka-server-start.sh脚本启动Kafka服务
-# 启动模式：使用exec替换当前进程，确保信号正确传递
+# ClusterId一致性检查
+# 作用：检测并修复Kafka本地clusterId与ZooKeeper不一致的问题
+# 原理：ZooKeeper数据重置后，Kafka本地meta.properties中的clusterId会与ZooKeeper不一致
+#       导致InconsistentClusterIdException，Kafka无法启动
+# 修复方式：删除本地meta.properties文件，让Kafka重新从ZooKeeper获取clusterId
 # ===============================================
+
+LOG_DIR=$(grep "^log.dirs=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
+if [ -z "$LOG_DIR" ]; then
+    LOG_DIR="/opt/kafka/data"
+fi
+
+META_FILE="$LOG_DIR/meta.properties"
+if [ -f "$META_FILE" ]; then
+    echo "检测到Kafka meta.properties文件: $META_FILE"
+    
+    ZK_CONNECT=$(grep "^zookeeper.connect=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
+    if [ -n "$ZK_CONNECT" ]; then
+        FIRST_ZK=$(echo "$ZK_CONNECT" | cut -d',' -f1)
+        ZK_HOST=$(echo "$FIRST_ZK" | cut -d':' -f1)
+        ZK_PORT=$(echo "$FIRST_ZK" | cut -d':' -f2 | cut -d'/' -f1)
+        
+        ZK_AVAILABLE=false
+        for i in $(seq 1 10); do
+            if bash -c "echo > /dev/tcp/$ZK_HOST/$ZK_PORT" 2>/dev/null; then
+                ZK_AVAILABLE=true
+                break
+            fi
+            echo "等待ZooKeeper连接... (尝试 $i/10)"
+            sleep 2
+        done
+        
+        if [ "$ZK_AVAILABLE" = true ]; then
+            LOCAL_CLUSTER_ID=$(grep "^cluster.id=" "$META_FILE" 2>/dev/null | cut -d'=' -f2)
+            ZK_CLUSTER_ID=$(echo "get /cluster/id" | /opt/kafka/bin/zookeeper-shell.sh "$ZK_CONNECT" 2>/dev/null | grep -o '"id" : "[^"]*"' | head -1 | cut -d'"' -f4)
+            
+            if [ -n "$LOCAL_CLUSTER_ID" ] && [ -n "$ZK_CLUSTER_ID" ] && [ "$LOCAL_CLUSTER_ID" != "$ZK_CLUSTER_ID" ]; then
+                echo "ClusterId不一致! 本地: $LOCAL_CLUSTER_ID, ZooKeeper: $ZK_CLUSTER_ID"
+                echo "删除本地meta.properties，让Kafka重新注册..."
+                rm -f "$META_FILE"
+            else
+                echo "ClusterId一致性检查通过"
+            fi
+        else
+            echo "ZooKeeper不可用，为安全起见删除meta.properties"
+            rm -f "$META_FILE"
+        fi
+    fi
+fi
 
 # Start Kafka
 exec /opt/kafka/bin/kafka-server-start.sh "$CONFIG_FILE"

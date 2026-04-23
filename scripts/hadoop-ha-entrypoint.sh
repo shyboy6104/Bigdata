@@ -80,6 +80,23 @@ elif [ "$ROLE" = "namenode1" ]; then
     # 启动JobHistoryServer，记录MapReduce作业历史
     echo "启动JobHistoryServer（作业历史服务器）..."
     $HADOOP_HOME/bin/mapred --daemon start historyserver
+    
+    # 等待HDFS退出安全模式后创建Spark日志目录
+    echo "等待HDFS退出安全模式..."
+    for i in {1..30}; do
+        if $HADOOP_HOME/bin/hdfs dfsadmin -safemode get 2>/dev/null | grep -q "OFF"; then
+            echo "HDFS已退出安全模式"
+            break
+        fi
+        echo "等待HDFS安全模式... (尝试 $i/30)"
+        sleep 2
+    done
+    
+    # 创建Spark事件日志目录
+    echo "创建Spark事件日志目录..."
+    $HADOOP_HOME/bin/hdfs dfs -mkdir -p /spark-logs 2>/dev/null
+    $HADOOP_HOME/bin/hdfs dfs -chmod 777 /spark-logs 2>/dev/null
+    echo "Spark事件日志目录创建完成: /spark-logs"
 
 # ===============================================
 # NameNode2服务启动（备节点）

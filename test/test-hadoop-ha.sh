@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 禁用 Git Bash/MSYS2 的路径自动转换，防止 docker exec 中的绝对路径被转换为 Windows 路径
+export MSYS_NO_PATHCONV=1
+
 # ===============================================
 # Hadoop高可用集群测试脚本
 # 作用：全面测试Hadoop HA集群的各项功能，包括高可用性、数据一致性、故障转移等
@@ -68,11 +71,12 @@ log ""
 # ===============================================
 
 log "2. 测试 JournalNode 集群状态..."
+jn_ok=0
 for i in 1 2 3; do
-    # 检查JournalNode进程状态
-    jn_status=$(docker exec journalnode$i jps 2>/dev/null | grep JournalNode | wc -l) | tee -a "$LOG_FILE"
-    if [ "$jn_status" -eq 1 ]; then
+    jn_status=$(docker exec journalnode$i jps 2>/dev/null | grep JournalNode | wc -l)
+    if [ "$jn_status" -eq 1 ] 2>/dev/null; then
         echo "✓ JournalNode$i 正常运行"
+        jn_ok=$((jn_ok + 1))
     else
         echo "✗ JournalNode$i 状态异常"
     fi
@@ -169,7 +173,7 @@ if [ -n "$active_nn" ]; then
     echo "5.1 使用 Active NameNode ($active_nn) 测试 HDFS..."
     
     # 检查 HDFS 状态
-    hdfs_status=$(docker exec $active_nn hdfs dfsadmin -report 2>/dev/null | grep "Live datanodes" | awk '{print $3}') | tee -a "$LOG_FILE"
+    hdfs_status=$(docker exec $active_nn hdfs dfsadmin -report 2>/dev/null | grep "Live datanodes" | grep -oE '[0-9]+')
     if [ -n "$hdfs_status" ]; then
         echo "✓ HDFS 正常运行，活跃 DataNode 数量: $hdfs_status"
     else
@@ -329,7 +333,7 @@ log "✓ 测试数据清理完成"
 log ""
 log "=== Hadoop HA 高可用集群测试完成 ==="
 log "测试总结:"
-log "- JournalNode 集群: $([ "$jn_status" -eq 1 ] && echo "✓ 正常" || echo "✗ 异常")"
+log "- JournalNode 集群: $([ "$jn_ok" -eq 3 ] && echo "✓ 正常" || echo "✗ 异常")"
 log "- NameNode HA 状态: $([ -n "$ha_status" ] && echo "✓ 正常" || echo "✗ 异常")"
 log "- Web UI 可访问性: $([ "$active_status" = "200" ] && echo "✓ 正常" || echo "✗ 异常")"
 log "- HDFS 文件系统: $([ -n "$hdfs_status" ] && echo "✓ 正常" || echo "✗ 异常")"

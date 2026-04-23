@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 禁用 Git Bash/MSYS2 的路径自动转换，防止 docker exec 中的绝对路径被转换为 Windows 路径
+export MSYS_NO_PATHCONV=1
+
 # 日志文件配置
 LOG_DIR="test/test-log"
 LOG_FILE="$LOG_DIR/test-kafka-$(date +%Y%m%d-%H%M%S).log"
@@ -23,17 +26,19 @@ docker ps | grep kafka | tee -a "$LOG_FILE"
 log "\n2. 等待Kafka集群启动 (10秒)..."
 sleep 10
 
+ZOOKEEPER_CONNECT="zoo1:2181,zoo2:2181,zoo3:2181"
+
 # 3. 创建测试主题
 log "\n3. 创建测试主题 'test-topic'..."
-docker exec kafka1 /opt/kafka/bin/kafka-topics.sh --create --topic test-topic --partitions 3 --replication-factor 3 --zookeeper 172.18.0.4:2181,172.18.0.3:2181,172.18.0.2:2181 || echo "Topic may already exist"
+docker exec kafka1 /opt/kafka/bin/kafka-topics.sh --create --topic test-topic --partitions 3 --replication-factor 3 --zookeeper $ZOOKEEPER_CONNECT || echo "Topic may already exist"
 
 # 4. 列出主题
 log "\n4. 列出所有主题..."
-docker exec kafka1 /opt/kafka/bin/kafka-topics.sh --list --zookeeper 172.18.0.4:2181,172.18.0.3:2181,172.18.0.2:2181
+docker exec kafka1 /opt/kafka/bin/kafka-topics.sh --list --zookeeper $ZOOKEEPER_CONNECT
 
 # 5. 查看主题详情
 log "\n5. 查看 'test-topic' 详情..."
-docker exec kafka1 /opt/kafka/bin/kafka-topics.sh --describe --topic test-topic --zookeeper 172.18.0.4:2181,172.18.0.3:2181,172.18.0.2:2181
+docker exec kafka1 /opt/kafka/bin/kafka-topics.sh --describe --topic test-topic --zookeeper $ZOOKEEPER_CONNECT
 
 # 6. 生产消息
 log "\n6. 生产测试消息..."

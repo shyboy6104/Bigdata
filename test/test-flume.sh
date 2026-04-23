@@ -56,7 +56,7 @@ fi
 # 检查Flume Agent状态
 log ""
 log "4. 检查Flume Agent状态..."
-if docker exec flume-kafka ps aux | grep -q flume-ng; then | tee -a "$LOG_FILE"
+if docker exec flume-kafka ps aux | grep -q flume-ng; then
     echo "✓ Flume Agent进程正常运行"
 else
     echo "✗ Flume Agent进程异常"

@@ -8,7 +8,7 @@ services:
       - "16200:16000"  # HBase Master RPC
       - "16220:16020"  # HBase RegionServer
       - "18280:8080"    # HBase REST API
-      - "9290:9090"    # HBase Thrift API
+      - "19090:9090"    # HBase Thrift API (changed to avoid port conflicts)
     volumes:
       - ./data/hbase/master:/opt/hbase/logs
       - ./config/hbase:/config/hbase

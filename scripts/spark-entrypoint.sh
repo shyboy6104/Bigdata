@@ -110,26 +110,31 @@ else
 fi
 
 # 确保HADOOP_CONF_DIR在classpath中
-export SPARK_DIST_CLASSPATH=$(hadoop classpath 2>/dev/null || echo "$HADOOP_CONF_DIR")
+export SPARK_DIST_CLASSPATH=$HADOOP_CONF_DIR
 
-# 等待Hadoop服务就绪（最多等待60秒）
-echo "Waiting for Hadoop services to be ready..."
+# 等待HDFS服务就绪（通过测试HDFS端口连通性）
+echo "Waiting for HDFS services to be ready..."
+HDFS_READY=false
 for i in {1..60}; do
-    if hdfs dfs -test -d / 2>/dev/null; then
-        echo "HDFS is ready!"
-        # 创建Spark日志目录
-        hdfs dfs -mkdir -p /spark-logs 2>/dev/null && echo "HDFS log directory created successfully"
-        break
+    if [ "$HADOOP_ENVIRONMENT" = "ha" ]; then
+        if (echo > /dev/tcp/namenode1/8020) 2>/dev/null; then
+            echo "HDFS NameNode is ready!"
+            HDFS_READY=true
+            break
+        fi
     else
-        echo "Waiting for HDFS... (attempt $i/60)"
-        sleep 1
+        if (echo > /dev/tcp/namenode/8020) 2>/dev/null; then
+            echo "HDFS NameNode is ready!"
+            HDFS_READY=true
+            break
+        fi
     fi
+    echo "Waiting for HDFS... (attempt $i/60)"
+    sleep 1
 done
 
-# 如果HDFS不可用，禁用事件日志
-export SPARK_EVENTLOG_ENABLED=$(hdfs dfs -test -d / 2>/dev/null && echo "true" || echo "false")
-if [ "$SPARK_EVENTLOG_ENABLED" = "false" ]; then
-    echo "HDFS not available, disabling event logging"
+if [ "$HDFS_READY" = "false" ]; then
+    echo "Warning: HDFS not available, event logging may fail"
 fi
 
 # 根据角色启动服务
