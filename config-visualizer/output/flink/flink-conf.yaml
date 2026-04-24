@@ -1,0 +1,102 @@
+# ===============================================
+# Flink流处理引擎配置文件
+# 作用：配置Flink集群的JobManager、TaskManager、状态后端等参数
+# 原理：Flink启动时读取此文件，建立集群运行环境和任务执行配置
+# 重要性：Flink的核心配置文件，影响流处理任务的执行性能
+# ===============================================
+
+# JobManager RPC服务地址配置
+# 作用：指定JobManager服务的网络地址
+# 原理：TaskManager通过此地址与JobManager建立通信连接
+# 地址说明：使用容器名flink-jobmanager进行服务发现
+jobmanager.rpc.address: flink-jobmanager
+
+# JobManager RPC服务端口配置
+# 作用：指定JobManager RPC服务的监听端口
+# 原理：6123是Flink JobManager的标准RPC通信端口
+jobmanager.rpc.port: 6123
+
+# JobManager内存配置
+# 作用：指定JobManager进程的堆内存大小
+# 原理：JobManager负责任务调度和集群协调，需要足够的内存
+jobmanager.memory.process.size: 1600m
+
+# TaskManager内存配置
+# 作用：指定TaskManager进程的堆内存大小
+# 原理：TaskManager负责实际的任务执行，内存大小影响任务性能
+taskmanager.memory.process.size: 1728m
+
+# TaskManager任务槽数量配置
+# 作用：指定每个TaskManager可以并行执行的任务槽数量
+# 原理：任务槽是Flink资源分配的基本单位，影响并行度
+taskmanager.numberOfTaskSlots: 1
+
+# 默认并行度配置
+# 作用：指定流处理任务的默认并行度
+# 原理：并行度决定任务在集群中的并行执行程度
+parallelism.default: 1
+
+# 状态后端配置
+# 作用：指定Flink状态数据的存储后端
+# 原理：hashmap后端将状态存储在内存中，适合开发和测试
+state.backend: hashmap
+
+# 检查点存储目录配置
+# 作用：指定检查点数据的存储位置
+# 原理：检查点用于故障恢复，确保流处理的一致性
+state.checkpoints.dir: file:///opt/flink/checkpoints
+
+# 保存点存储目录配置
+# 作用：指定保存点数据的存储位置
+# 原理：保存点用于手动备份和版本升级
+state.savepoints.dir: file:///opt/flink/savepoints
+
+# 高可用性模式配置
+# 作用：启用或禁用Flink集群的高可用性模式
+# 原理：none表示禁用HA模式，适合单节点部署
+high-availability: none
+
+# 高可用性存储目录配置（注释状态）
+# 作用：在高可用模式下指定元数据存储目录
+# 原理：HA模式下需要持久化存储JobManager的元数据
+# high-availability.storageDir: file:///opt/flink/ha/
+
+# ZooKeeper集群配置（HA模式备用）
+# 作用：在高可用模式下指定ZooKeeper集群地址
+# 原理：HA模式下使用ZooKeeper进行领导者选举和元数据存储
+high-availability.zookeeper.quorum: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+
+# ZooKeeper根路径配置
+# 作用：在高可用模式下指定Flink在ZooKeeper中的根路径
+# 原理：避免与其他应用在ZooKeeper中的路径冲突
+high-availability.zookeeper.path.root: /flink
+
+# Blob服务器端口配置
+# 作用：指定Blob服务器的服务端口
+# 原理：Blob服务器用于分发JAR包和用户代码
+blob.server.port: 6124
+
+# 查询服务器端口配置
+# 作用：指定查询服务器的服务端口
+# 原理：查询服务器用于执行SQL查询和Table API
+query.server.port: 6125
+
+# REST API端口配置
+# 作用：指定Flink REST API的服务端口
+# 原理：用户可以通过REST API提交和管理任务
+rest.port: 8081
+
+# REST API地址配置
+# 作用：指定REST API服务的监听地址
+# 原理：0.0.0.0表示监听所有网络接口
+rest.address: 0.0.0.0
+
+# 类加载器解析顺序配置
+# 作用：指定类加载器的类解析顺序
+# 原理：parent-first优先从父类加载器加载类
+classloader.resolve-order: parent-first
+
+# Web提交功能配置
+# 作用：启用或禁用通过Web界面提交任务的功能
+# 原理：启用后可以通过Flink Web UI提交JAR包任务
+web.submit.enable: true

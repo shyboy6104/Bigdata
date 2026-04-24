@@ -1,0 +1,13 @@
+# ===============================================
+# Flink集群TaskManager节点列表文件
+# 作用：定义Flink集群中TaskManager节点的容器主机名
+# 原理：Flink JobManager启动时读取此文件，自动发现和注册TaskManager节点
+# 重要性：确保Flink JobManager能正确管理所有TaskManager节点
+# 注意：Flink使用动态资源分配，此文件主要用于静态配置
+# ===============================================
+
+# TaskManager节点列表
+# 格式：每行一个TaskManager容器的hostname
+# 说明：这些主机名必须与Docker Compose中定义的容器名称一致
+
+taskmanager

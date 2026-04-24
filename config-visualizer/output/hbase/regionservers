@@ -1,0 +1,13 @@
+# ===============================================
+# HBase集群RegionServer节点列表文件
+# 作用：定义HBase集群中RegionServer节点的容器主机名
+# 原理：HBase Master启动时读取此文件，自动发现和注册RegionServer节点
+# 重要性：确保HBase Master能正确管理所有RegionServer节点
+# ===============================================
+
+# RegionServer节点列表
+# 格式：每行一个RegionServer容器的hostname
+# 说明：这些主机名必须与Docker Compose中定义的容器名称一致
+
+hbase-regionserver1
+hbase-regionserver2
