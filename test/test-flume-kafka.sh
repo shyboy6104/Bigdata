@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 禁用 Git Bash/MSYS2 的路径自动转换，防止 docker exec 中的绝对路径被转换为 Windows 路径
+export MSYS_NO_PATHCONV=1
+
 # 日志文件配置
 LOG_DIR="test/test-log"
 LOG_FILE="$LOG_DIR/test-flume-kafka-$(date +%Y%m%d-%H%M%S).log"
