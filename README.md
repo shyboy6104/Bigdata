@@ -60,29 +60,31 @@
 
 本项目提供了 `bigdata-cli.sh` 命令行管理工具，支持交互式菜单和命令行两种模式，可一键完成镜像构建、容器部署和功能测试。
 
+> **注意**：在 Windows WSL 环境下，建议使用 `bash` 命令执行 `.sh` 脚本，避免直接运行可能遇到的路径和换行符问题。
+
 ```bash
 # 交互式菜单模式（推荐新手使用）
-./bigdata-cli.sh
+bash bigdata-cli.sh
 
 # 命令行模式 - 构建镜像
-./bigdata-cli.sh build hadoop-ha
+bash bigdata-cli.sh build hadoop-ha
 
 # 命令行模式 - 启动容器
-./bigdata-cli.sh start hadoop-ha
+bash bigdata-cli.sh start hadoop-ha
 
 # 命令行模式 - 测试功能
-./bigdata-cli.sh test hadoop-ha
+bash bigdata-cli.sh test hadoop-ha
 
 # 按依赖顺序一键部署所有组件
-./bigdata-cli.sh build zookeeper && ./bigdata-cli.sh start zookeeper
-./bigdata-cli.sh build hadoop-ha  && ./bigdata-cli.sh start hadoop-ha
-./bigdata-cli.sh build mysql      && ./bigdata-cli.sh start mysql
-./bigdata-cli.sh build hbase      && ./bigdata-cli.sh start hbase
-./bigdata-cli.sh build hive       && ./bigdata-cli.sh start hive
-./bigdata-cli.sh build kafka      && ./bigdata-cli.sh start kafka
-./bigdata-cli.sh build spark      && ./bigdata-cli.sh start spark
-./bigdata-cli.sh build flink      && ./bigdata-cli.sh start flink
-./bigdata-cli.sh build flume      && ./bigdata-cli.sh start flume
+bash bigdata-cli.sh build zookeeper && bash bigdata-cli.sh start zookeeper
+bash bigdata-cli.sh build hadoop-ha  && bash bigdata-cli.sh start hadoop-ha
+bash bigdata-cli.sh build mysql      && bash bigdata-cli.sh start mysql
+bash bigdata-cli.sh build hbase      && bash bigdata-cli.sh start hbase
+bash bigdata-cli.sh build hive       && bash bigdata-cli.sh start hive
+bash bigdata-cli.sh build kafka      && bash bigdata-cli.sh start kafka
+bash bigdata-cli.sh build spark      && bash bigdata-cli.sh start spark
+bash bigdata-cli.sh build flink      && bash bigdata-cli.sh start flink
+bash bigdata-cli.sh build flume      && bash bigdata-cli.sh start flume
 ```
 
 > 详细用法请参考 [CLI_USAGE.md](CLI_USAGE.md)
@@ -92,10 +94,10 @@
 ### 1. 环境准备
 ```bash
 # 创建Docker网络（所有组件共享同一网络）
-./scripts/network.sh create
+bash scripts/network.sh create
 
 # 同步组件版本信息
-./scripts/update-dockerfile-versions.sh
+bash scripts/update-dockerfile-versions.sh
 ```
 
 ### 2. 构建镜像（可选）
@@ -143,22 +145,22 @@ docker build -f dockerfile.mysql -t bigdata-mysql:latest .
 ### 5. 功能测试
 ```bash
 # 单独测试各组件
-./test/test-hadoop.sh        # Hadoop功能测试
-./test/test-hadoop-ha.sh     # Hadoop高可用功能测试
-./test/test-hbase.sh         # HBase功能测试
-./test/test-hive.sh          # Hive功能测试
-./test/test-zookeeper.sh     # ZooKeeper功能测试
-./test/test-kafka.sh         # Kafka功能测试
-./test/test-spark.sh         # Spark功能测试
-./test/test-flink.sh         # Flink功能测试
-./test/test-flume.sh         # Flume功能测试
-./test/test-mysql.sh         # MySQL功能测试
+bash test/test-hadoop.sh        # Hadoop功能测试
+bash test/test-hadoop-ha.sh     # Hadoop高可用功能测试
+bash test/test-hbase.sh         # HBase功能测试
+bash test/test-hive.sh          # Hive功能测试
+bash test/test-zookeeper.sh     # ZooKeeper功能测试
+bash test/test-kafka.sh         # Kafka功能测试
+bash test/test-spark.sh         # Spark功能测试
+bash test/test-flink.sh         # Flink功能测试
+bash test/test-flume.sh         # Flume功能测试
+bash test/test-mysql.sh         # MySQL功能测试
 
 # 测试Flume与Kafka联动
-./test/test-flume-kafka.sh
+bash test/test-flume-kafka.sh
 
 # 测试Hadoop高可用模式
-./test/test-hadoop-ha.sh
+bash test/test-hadoop-ha.sh
 ```
 
 ### 6. 服务管理
@@ -410,7 +412,7 @@ docker-compose -f docker-compose.5-node-cluster.yml up -d
 ### 5. 功能测试
 ```bash
 # 运行完整集群功能测试（73项测试）
-./test/cluster-test.sh
+bash test/cluster-test.sh
 
 # 测试结果示例
 # ========================================
@@ -577,7 +579,68 @@ docker exec master tail -f /opt/hadoop/logs/health-monitor.log
 - **Spark**：Master Web UI (http://localhost:28080)
 - **Flink**：Dashboard (http://localhost:28081)
 
-## 🎨 可视化配置工具
+## ⚠️ Windows WSL 环境注意事项
+
+在 Windows WSL (Ubuntu) 环境下使用本项目时，请注意以下重要事项：
+
+### 脚本执行方式
+
+**推荐使用 `bash` 命令执行 `.sh` 脚本**，避免直接运行可能遇到的路径和换行符问题：
+
+```bash
+# ✅ 推荐：使用 bash 命令执行
+bash bigdata-cli.sh
+bash test/test-hadoop.sh
+bash scripts/network.sh create
+
+# ❌ 避免：直接运行脚本（可能遇到问题）
+./bigdata-cli.sh
+./test/test-hadoop.sh
+./scripts/network.sh create
+```
+
+### 常见问题及解决方案
+
+#### 1. 换行符问题 (CRLF vs LF)
+- **症状**：脚本执行时报错 `bash: $'\r': command not found`
+- **原因**：Windows 和 Linux 换行符不一致
+- **解决**：使用 `bash` 命令执行，或使用 `dos2unix` 工具转换
+
+#### 2. 路径分隔符问题
+- **症状**：路径相关错误，如 `No such file or directory`
+- **原因**：Windows 使用 `\`，Linux 使用 `/`
+- **解决**：确保在 WSL 环境中使用 Linux 路径格式
+
+#### 3. 文件权限问题
+- **症状**：`Permission denied` 错误
+- **原因**：脚本没有执行权限
+- **解决**：使用 `chmod +x script.sh` 添加执行权限
+
+### 最佳实践
+
+1. **始终在 WSL 终端中操作**，避免使用 Windows PowerShell 或 CMD
+2. **使用 `bash` 命令执行所有 `.sh` 脚本**
+3. **确保文件路径使用 Linux 格式** (`/` 而不是 `\`)
+4. **检查脚本文件的换行符**，必要时使用 `dos2unix` 转换
+
+### 环境检查
+
+运行以下命令检查环境是否正常：
+
+```bash
+# 检查 WSL 版本
+wsl --version
+
+# 检查 Docker 状态
+docker --version
+docker-compose --version
+
+# 检查脚本执行权限
+ls -la bigdata-cli.sh
+
+# 测试脚本执行
+bash bigdata-cli.sh --help
+```
 
 项目提供了基于 PyQt5 的可视化配置工具，支持图形化方式管理所有组件的配置文件。
 
@@ -596,7 +659,7 @@ docker exec master tail -f /opt/hadoop/logs/health-monitor.log
 # 进入可视化工具目录
 cd config-visualizer
 
-# 启动可视化配置工具
+# 启动可视化配置工具（使用 Python 解释器）
 python main.py
 ```
 
