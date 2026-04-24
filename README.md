@@ -577,26 +577,73 @@ docker exec master tail -f /opt/hadoop/logs/health-monitor.log
 - **Spark**：Master Web UI (http://localhost:28080)
 - **Flink**：Dashboard (http://localhost:28081)
 
-## 📁 项目结构详解
+## 🎨 可视化配置工具
 
+项目提供了基于 PyQt5 的可视化配置工具，支持图形化方式管理所有组件的配置文件。
+
+### 主要功能特性
+
+- **多格式支持**：支持 XML、Properties、Shell、INI、YAML、Spark配置、列表文件、纯文本等 9 种文件格式
+- **组件管理**：动态添加/删除组件，自动创建工作目录
+- **文件管理**：支持新增配置文件，自动检测文件类型并创建模板
+- **智能编辑**：表格模式和纯文本模式双界面，预设配置项和详细说明
+- **核心标记**：用 * 标识系统必需配置项，避免遗漏关键配置
+- **独立运行**：基于工作目录架构，解耦 config/ 目录依赖
+
+### 快速使用
+
+```bash
+# 进入可视化工具目录
+cd config-visualizer
+
+# 启动可视化配置工具
+python main.py
 ```
-Bigdata/
-├── config/                    # 配置文件目录
-│   ├── all-in-one/           # 5节点全栈集群配置
-│   │   ├── hadoop/           # Hadoop配置文件
-│   │   ├── hadoop-master/    # Master节点Hadoop配置
-│   │   ├── hadoop-worker/    # Worker节点Hadoop配置
-│   │   ├── hbase-master/     # HBase Master配置
-│   │   ├── hbase-worker/     # HBase RegionServer配置
-│   │   ├── hive/             # Hive配置
-│   │   ├── kafka/            # Kafka配置
-│   │   ├── spark-master/     # Spark Master配置
-│   │   ├── spark-worker/     # Spark Worker配置
-│   │   ├── flink-master/     # Flink JobManager配置
-│   │   ├── flink-worker/     # Flink TaskManager配置
-│   │   ├── zookeeper/        # ZooKeeper配置
-│   │   ├── mysql/            # MySQL配置
-│   │   ├── flume/            # Flume配置
+
+### 界面功能
+
+1. **左侧面板**：
+   - 组件列表：显示所有大数据组件
+   - 配置文件列表：显示当前组件的配置文件
+   - 新增组件/文件按钮：支持动态添加
+
+2. **右侧编辑器**：
+   - 表格模式：结构化配置项编辑，支持下拉选择
+   - 纯文本模式：自由编辑非结构化配置文件
+   - 保存按钮：保存到工作目录
+   - 同步按钮：将工作目录文件推送到 config/ 目录
+
+### 支持的文件类型
+
+| 文件类型 | 扩展名 | 说明 |
+|---------|--------|------|
+| XML配置 | .xml | Hadoop、HBase、Hive配置文件 |
+| Properties配置 | .properties | Kafka、ZooKeeper配置文件 |
+| 键值对配置 | .conf/.cfg | Flume配置文件 |
+| Spark配置 | spark-defaults.conf | 空格分隔的键值对 |
+| Shell环境变量 | .sh | Spark、Hadoop环境变量 |
+| INI配置 | .cnf/.ini | MySQL配置文件 |
+| YAML配置 | .yaml/.yml | Flink配置文件 |
+| 列表配置 | workers/slaves等 | 主机名列表文件 |
+| 纯文本文件 | .txt/.md等 | 自由编辑的文本文件 |
+
+### 工作流程
+
+1. **选择组件** → 显示该组件的配置文件列表
+2. **选择文件** → 自动检测文件类型并加载到编辑器
+3. **编辑配置** → 表格模式或纯文本模式编辑
+4. **保存配置** → 保存到工作目录（output/）
+5. **同步到源** → 可选将工作目录文件推送到 config/
+
+### 新增组件示例
+
+1. 点击"➕ 新增组件"按钮
+2. 填写组件标识（如：clickhouse）、显示名称（如：ClickHouse）、配置目录
+3. 自动在工作目录创建对应子目录
+4. 点击"➕ 新增文件"添加配置文件
+5. 选择文件类型，自动创建模板并加载编辑
+
+> 可视化工具详细使用说明请参考工具内帮助信息
 │   │   └── supervisor/       # Supervisor服务配置
 │   └── component/            # 单组件独立集群配置
 │       ├── hadoop/           # Hadoop标准配置
