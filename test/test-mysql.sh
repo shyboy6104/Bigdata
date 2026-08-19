@@ -1,129 +1,131 @@
 #!/bin/bash
 
-# 禁用 Git Bash/MSYS2 的路径自动转换，防止 docker exec 中的绝对路径被转换为 Windows 路径
-export MSYS_NO_PATHCONV=1
+set -u
 
-# 日志文件配置
-LOG_DIR="test/test-log"
-LOG_FILE="$LOG_DIR/test-mysql-$(date +%Y%m%d-%H%M%S).log"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "$SCRIPT_DIR/test-common.sh"
 
-# 创建日志目录
-mkdir -p "$LOG_DIR"
+test_init "MySQL 与 Hive Metastore 数据库测试" "test-mysql"
 
-# 日志函数
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
+TEST_DB="test_db_$(date +%s)_$$"
+TEST_VALUE="mysql-value-$(date +%s)-$$"
+
+cleanup_database() {
+    docker exec mysql mysql -uroot -proot \
+        -e "DROP DATABASE IF EXISTS $TEST_DB;" >/dev/null 2>&1 || true
 }
 
-log "=== MySQL 数据库服务测试 ==="
-log "测试开始时间: $(date)"
-log "日志文件: $LOG_FILE"
-log ""
+test_section "一、容器状态检查"
+if ! test_container_running mysql; then
+    test_detail "当前 MySQL 相关容器" "$(docker ps -a --filter name=mysql 2>&1)"
+    test_finish "MySQL 测试提前结束：容器未运行"
+    exit 1
+fi
 
-# 检查 MySQL 容器状态
-log "1. 检查 MySQL 容器状态..."
-docker ps | grep -E "mysql" | tee -a "$LOG_FILE"
-log ""
-
-# 等待 MySQL 服务完全启动
-log "2. 等待 MySQL 服务启动..."
-for i in {1..30}; do
-    if docker exec mysql mysqladmin ping -uroot -proot --silent; then
-        log "✓ MySQL 服务已启动"
+test_section "二、服务就绪检查"
+MYSQL_READY=false
+for attempt in $(seq 1 30); do
+    PING_OUTPUT=$(docker exec mysql mysqladmin ping -uroot -proot 2>&1)
+    if [ $? -eq 0 ] && echo "$PING_OUTPUT" | grep -qi 'alive'; then
+        MYSQL_READY=true
+        test_pass "MySQL 服务响应 mysqladmin ping"
+        test_detail "mysqladmin 输出" "$PING_OUTPUT"
         break
-    else
-        if [ $i -eq 30 ]; then
-            log "✗ MySQL 服务启动超时"
-            exit 1
-        fi
-        sleep 2
     fi
+    test_info "第 $attempt/30 次等待 MySQL 就绪。"
+    sleep 2
 done
 
-# 测试 MySQL 连接和基本查询
-log "3. 测试 MySQL 连接和基本查询..."
-connection_test=$(docker exec mysql mysql -uroot -proot -e "SELECT 1 AS test;" 2>&1)
-if echo "$connection_test" | grep -q "test"; then
-    log "✓ MySQL 连接和查询正常"
-else
-    log "✗ MySQL 连接失败: $connection_test"
+if [ "$MYSQL_READY" != true ]; then
+    test_fail "MySQL 在 60 秒内未就绪；请检查初始化、数据卷和密码配置"
+    test_detail "最后一次 mysqladmin 输出" "$PING_OUTPUT"
 fi
 
-# 测试 hive_metastore 数据库存在性
-log "4. 测试 hive_metastore 数据库存在性..."
-db_exists=$(docker exec mysql mysql -uroot -proot -e "SHOW DATABASES;" 2>&1 | grep -q "hive" && echo "exists")
-if [ "$db_exists" = "exists" ]; then
-    log "✓ hive_metastore 数据库存在"
+test_section "三、账户和元数据库检查"
+ROOT_QUERY=$(docker exec mysql mysql -N -B -uroot -proot \
+    -e "SELECT 'root-connection-ok';" 2>&1)
+if [ $? -eq 0 ] && echo "$ROOT_QUERY" | grep -Fxq 'root-connection-ok'; then
+    test_pass "root 用户能够连接并执行查询"
+    test_detail "查询结果" "$ROOT_QUERY"
 else
-    log "✗ hive_metastore 数据库不存在"
+    test_fail "root 用户连接或查询失败；请检查 MYSQL_ROOT_PASSWORD"
+    test_detail "MySQL 客户端输出" "$ROOT_QUERY"
 fi
 
-# 测试 hive 用户连接
-log "5. 测试 hive 用户连接..."
-hive_connection=$(docker exec mysql mysql -uhive -phive -e "SELECT 1 AS test;" 2>&1)
-if echo "$hive_connection" | grep -q "test"; then
-    log "✓ hive 用户连接正常"
+METASTORE_DB=$(docker exec mysql mysql -N -B -uroot -proot \
+    -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='hive';" 2>&1)
+if [ $? -eq 0 ] && echo "$METASTORE_DB" | grep -Fxq 'hive'; then
+    test_pass "独立架构的 hive 元数据库存在"
 else
-    log "✗ hive 用户连接失败: $hive_connection"
+    test_fail "独立架构的 hive 元数据库不存在；Hive Metastore 将无法保存元数据"
+    test_detail "数据库检查输出" "$METASTORE_DB"
 fi
 
-# 测试数据库操作
-log "6. 测试数据库操作..."
+HIVE_QUERY=$(docker exec mysql mysql -N -B -uhive -phive \
+    -e "SELECT 'hive-connection-ok';" 2>&1)
+if [ $? -eq 0 ] && echo "$HIVE_QUERY" | grep -Fxq 'hive-connection-ok'; then
+    test_pass "hive 用户能够连接并执行查询"
+    test_detail "查询结果" "$HIVE_QUERY"
+else
+    test_fail "hive 用户连接失败；请检查用户、密码和授权主机范围"
+    test_detail "MySQL 客户端输出" "$HIVE_QUERY"
+fi
 
-# 创建测试数据库
-docker exec mysql mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS test_db;" 2>&1
+test_section "四、数据库 CRUD"
+test_info "使用本轮唯一数据库：$TEST_DB"
+CREATE_DB=$(docker exec mysql mysql -uroot -proot \
+    -e "CREATE DATABASE $TEST_DB;" 2>&1)
 if [ $? -eq 0 ]; then
-    log "✓ 测试数据库创建成功"
+    test_pass "创建测试数据库"
 else
-    log "✗ 测试数据库创建失败"
+    test_fail "创建测试数据库失败"
+    test_detail "CREATE DATABASE 输出" "$CREATE_DB"
 fi
 
-# 创建测试表
-docker exec mysql mysql -uroot -proot -e "USE test_db; CREATE TABLE IF NOT EXISTS test_table (id INT PRIMARY KEY, name VARCHAR(50));" 2>&1
+CREATE_TABLE=$(docker exec mysql mysql -uroot -proot \
+    -e "CREATE TABLE $TEST_DB.test_table (id INT PRIMARY KEY, value_text VARCHAR(100));" 2>&1)
 if [ $? -eq 0 ]; then
-    log "✓ 测试表创建成功"
+    test_pass "创建测试表"
 else
-    log "✗ 测试表创建失败"
+    test_fail "创建测试表失败；请检查数据库创建结果和用户权限"
+    test_detail "CREATE TABLE 输出" "$CREATE_TABLE"
 fi
 
-# 插入测试数据
-docker exec mysql mysql -uroot -proot -e "USE test_db; INSERT INTO test_table VALUES (1, 'test') ON DUPLICATE KEY UPDATE name='test';" 2>&1
+INSERT_OUTPUT=$(docker exec mysql mysql -uroot -proot \
+    -e "INSERT INTO $TEST_DB.test_table VALUES (1, '$TEST_VALUE');" 2>&1)
 if [ $? -eq 0 ]; then
-    log "✓ 测试数据插入成功"
+    test_pass "插入唯一测试数据"
 else
-    log "✗ 测试数据插入失败"
+    test_fail "插入测试数据失败；请检查表结构和 SQL 错误"
+    test_detail "INSERT 输出" "$INSERT_OUTPUT"
 fi
 
-# 查询测试数据
-query_result=$(docker exec mysql mysql -uroot -proot -e "USE test_db; SELECT * FROM test_table;" 2>&1)
-if echo "$query_result" | grep -q "test"; then
-    log "✓ 测试数据查询成功"
-    log "  查询结果: $query_result"
+QUERY_OUTPUT=$(docker exec mysql mysql -N -B -uroot -proot \
+    -e "SELECT value_text FROM $TEST_DB.test_table WHERE id=1;" 2>&1)
+if [ $? -eq 0 ] && echo "$QUERY_OUTPUT" | grep -Fxq "$TEST_VALUE"; then
+    test_pass "精确查询到本轮唯一测试数据"
+    test_detail "SELECT 结果" "$QUERY_OUTPUT"
 else
-    log "✗ 测试数据查询失败: $query_result"
+    test_fail "查询结果与写入值不一致；请检查 INSERT 是否提交成功"
+    test_detail "SELECT 输出" "$QUERY_OUTPUT"
 fi
 
-# 清理测试数据
-docker exec mysql mysql -uroot -proot -e "DROP DATABASE IF EXISTS test_db;" 2>&1
+test_section "五、测试资源清理"
+DROP_OUTPUT=$(docker exec mysql mysql -uroot -proot \
+    -e "DROP DATABASE $TEST_DB;" 2>&1)
 if [ $? -eq 0 ]; then
-    log "✓ 测试数据清理成功"
+    test_pass "删除测试数据库"
 else
-    log "✗ 测试数据清理失败"
+    test_fail "删除测试数据库失败；数据库 $TEST_DB 可能残留"
+    test_detail "DROP DATABASE 输出" "$DROP_OUTPUT"
 fi
 
-# 综合测试结果
-log ""
-log "=== MySQL 数据库服务测试完成 ==="
-log "测试总结:"
-log "- MySQL 端口连接: $([ -z "$mysql_port_status" ] && echo "✓ 正常" || echo "✗ 异常")"
-log "- MySQL 连接查询: $([ -n "$connection_test" ] && echo "✓ 正常" || echo "✗ 异常")"
-log "- hive_metastore 数据库: $([ "$db_exists" = "exists" ] && echo "✓ 存在" || echo "✗ 不存在")"
-log "- hive 用户连接: $([ -n "$hive_connection" ] && echo "✓ 正常" || echo "✗ 异常")"
-log "- 数据库操作: $([ -n "$query_result" ] && echo "✓ 正常" || echo "✗ 异常")"
+if [ "$TEST_FAILED" -gt 0 ]; then
+    test_section "失败诊断"
+    test_detail "MySQL 进程列表" "$(docker exec mysql ps aux 2>&1)"
+    test_container_logs mysql 120
+fi
 
-log ""
-log "详细测试报告已生成，MySQL 数据库服务验证完成！"
-
-# 记录测试结束时间
-log "测试结束时间: $(date)"
-log "测试结果已保存到: $LOG_FILE"
+cleanup_database
+test_finish "MySQL 与 Hive Metastore 数据库测试结果"
+exit $?

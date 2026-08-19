@@ -55,15 +55,69 @@ run_test() {
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
     log_info "  测试: $test_name"
-    if eval "$test_command" >/dev/null 2>&1; then
+    local test_output
+    test_output=$(eval "$test_command" 2>&1)
+    local test_exit_code=$?
+
+    if [ $test_exit_code -eq 0 ]; then
         log_success "  $test_name"
         PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
     else
         log_error "  $test_name"
+        log "  [诊断] 退出码: $test_exit_code"
+        log "  [诊断] 执行命令: $test_command"
+        if [ -n "$test_output" ]; then
+            log "  [诊断] 命令输出:"
+            printf '%s\n' "$test_output" | tail -n 80 | sed 's/^/    /' | tee -a "$LOG_FILE"
+        else
+            log "  [诊断] 命令没有输出。"
+        fi
+        collect_failure_diagnostics "$test_name"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
     fi
+}
+
+collect_failure_diagnostics() {
+    local test_name=$1
+
+    case "$test_name" in
+        *HDFS*|*YARN*|*MapReduce*|*NameNode*|*DataNode*|*NodeManager*|*ResourceManager*)
+            log "  [诊断] Master/Worker Hadoop 进程状态:"
+            docker exec master jps 2>&1 | sed 's/^/    master: /' | tee -a "$LOG_FILE" || true
+            docker exec worker-1 jps 2>&1 | sed 's/^/    worker-1: /' | tee -a "$LOG_FILE" || true
+            ;;
+        *HBase*)
+            log "  [诊断] HBase Supervisor 状态与 Master 最近日志:"
+            docker exec master supervisorctl status hbase-master 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker logs --tail 40 master 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
+        *Hive*)
+            log "  [诊断] Hive Supervisor 状态:"
+            docker exec master supervisorctl status hive-metastore hive-server2 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
+        *Kafka*|*Flume*|*数据管道*)
+            log "  [诊断] Kafka/Flume Supervisor 状态:"
+            docker exec worker-1 supervisorctl status kafka-broker 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker exec infra supervisorctl status flume-agent 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
+        *Spark*)
+            log "  [诊断] Spark Supervisor 状态:"
+            docker exec master supervisorctl status spark-master 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker exec worker-1 supervisorctl status spark-worker 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
+        *Flink*)
+            log "  [诊断] Flink Supervisor 状态:"
+            docker exec master supervisorctl status flink-jobmanager 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker exec worker-1 supervisorctl status flink-taskmanager 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
+        *MySQL*)
+            log "  [诊断] MySQL Supervisor 状态与最近日志:"
+            docker exec infra supervisorctl status mysql 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker logs --tail 40 infra 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
+    esac
 }
 
 section() {
@@ -75,7 +129,7 @@ section() {
 
 run_hbase_cmd() {
     local cmd="$1"
-    echo "$cmd" | docker exec -i master bash -c 'cat > /tmp/hbase_test.cmd && /opt/hbase/bin/hbase shell /tmp/hbase_test.cmd 2>/dev/null'
+    echo "$cmd" | docker exec -i master bash -c 'cat > /tmp/hbase_test.cmd && /opt/hbase/bin/hbase shell /tmp/hbase_test.cmd'
 }
 
 # ===============================================
@@ -95,6 +149,44 @@ test_cluster_status() {
     docker exec worker-1 supervisorctl status 2>/dev/null | tee -a "$LOG_FILE" || true
     log_info "Supervisor服务状态 (infra):"
     docker exec infra supervisorctl status 2>/dev/null | tee -a "$LOG_FILE" || true
+}
+
+# ===============================================
+# 0.1 JVM 与进程内存验收
+# ===============================================
+test_memory_configuration() {
+    section "JVM 与进程内存配置"
+
+    log_info "Master 节点实际 JVM 启动参数:"
+    docker exec master bash -c \
+        "ps -eo pid,args | grep -E '[N]ameNode|[R]esourceManager|[H]Master|[H]iveMetaStore|[H]iveServer2|deploy.master.Master|[S]tandaloneSessionClusterEntrypoint'" \
+        2>/dev/null | tee -a "$LOG_FILE" || true
+
+    log_info "Worker-1 节点实际 JVM 启动参数:"
+    docker exec worker-1 bash -c \
+        "ps -eo pid,args | grep -E '[D]ataNode|[N]odeManager|[Q]uorumPeerMain|kafka.Kafka|[H]RegionServer|deploy.worker.Worker|[T]askManagerRunner'" \
+        2>/dev/null | tee -a "$LOG_FILE" || true
+
+    run_test "NameNode 最大堆内存 512 MB" \
+        "docker exec master bash -c \"ps -eo args | grep '[N]ameNode' | grep -q -- '-Xmx512m'\""
+    run_test "DataNode 最大堆内存 256 MB" \
+        "docker exec worker-1 bash -c \"ps -eo args | grep '[D]ataNode' | grep -q -- '-Xmx256m'\""
+    run_test "HBase Master 最大堆内存 512 MB" \
+        "docker exec master bash -c \"ps -eo args | grep '[H]Master' | grep -q -- '-Xmx512m'\""
+    run_test "HBase RegionServer 最大堆内存 1024 MB" \
+        "docker exec worker-1 bash -c \"ps -eo args | grep '[H]RegionServer' | grep -q -- '-Xmx1024m'\""
+    run_test "ZooKeeper 最大堆内存 128 MB" \
+        "docker exec worker-1 bash -c \"ps -eo args | grep '[Q]uorumPeerMain' | grep -q -- '-Xmx128m'\""
+    run_test "Kafka 最大堆内存 512 MB" \
+        "docker exec worker-1 bash -c \"ps -eo args | grep 'kafka.Kafka' | grep -q -- '-Xmx512m'\""
+    run_test "Spark Master 守护进程堆内存 512 MB" \
+        "docker exec master bash -c \"ps -eo args | grep '[d]eploy.master.Master' | grep -q -- '-Xmx512m'\""
+    run_test "Spark Worker 守护进程堆内存 512 MB" \
+        "docker exec worker-1 bash -c \"ps -eo args | grep '[d]eploy.worker.Worker' | grep -q -- '-Xmx512m'\""
+    run_test "Flink JobManager 进程内存配置 512 MB" \
+        "docker exec master grep -q '^jobmanager.memory.process.size: 512m$' /opt/flink/conf/flink-conf.yaml"
+    run_test "Flink TaskManager 进程内存配置 512 MB" \
+        "docker exec worker-1 grep -q '^taskmanager.memory.process.size: 512m$' /opt/flink/conf/flink-conf.yaml"
 }
 
 # ===============================================
@@ -545,6 +637,7 @@ main() {
     log "=============================================="
 
     test_cluster_status
+    test_memory_configuration
 
     test_hadoop
     test_zookeeper

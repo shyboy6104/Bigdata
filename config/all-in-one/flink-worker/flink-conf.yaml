@@ -1,10 +1,30 @@
+# ===============================================
+# Flink TaskManager 节点配置文件
+# 作用：配置 Worker 与 JobManager 的通信、进程内存、网络缓冲和任务槽
+# 原理：TaskManager 向 JobManager 注册，在 Slot 中执行作业的并行子任务
+# 节点类型：worker-1、worker-2、worker-3
+# ===============================================
+
+# JobManager RPC 入口，所有 TaskManager 通过该地址注册和接收任务。
 jobmanager.rpc.address: master
 jobmanager.rpc.port: 6123
 
-taskmanager.memory.process.size: 1024m
+# ===============================================
+# TaskManager 进程内存
+# process.size 是整个 TaskManager Java 进程预算，包含堆、堆外、网络和 JVM 保留区。
+# 512 MiB 是教学环境的小内存配置；network.min/max 固定为 64 MiB，避免自动计算冲突。
+# ===============================================
+taskmanager.memory.process.size: 512m
+taskmanager.memory.framework.heap.size: 64m
+taskmanager.memory.framework.off-heap.size: 64m
+taskmanager.memory.jvm-metaspace.size: 96m
+taskmanager.memory.jvm-overhead.min: 64m
+taskmanager.memory.jvm-overhead.max: 64m
+taskmanager.memory.network.min: 64m
+taskmanager.memory.network.max: 64m
+
+# 每个 TaskManager 提供两个 Slot，用于演示并行子任务的分配。
 taskmanager.numberOfTaskSlots: 2
 
-state.backend: jobmanager
-state.checkpoints.dir: file:///opt/flink/checkpoints
-
+# 未在作业中显式设置时使用的默认并行度。
 parallelism.default: 2

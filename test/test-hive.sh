@@ -21,6 +21,11 @@ LOG_FILE="$LOG_DIR/hive-test-$(date +%Y%m%d-%H%M%S).log"
 # 创建日志目录
 mkdir -p "$LOG_DIR"
 
+# 捕获全部终端输出，Beeline、HDFS 和容器诊断信息统一进入日志。
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+GLOBAL_FAILURES=0
+
 # 函数：打印带颜色的消息
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -36,11 +41,12 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+    GLOBAL_FAILURES=$((GLOBAL_FAILURES + 1))
 }
 
 # 函数：记录日志
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 # 函数：检查命令是否存在
@@ -354,7 +360,15 @@ print_success "=== Hive 集群功能验证完成 ==="
 print_info "详细测试报告已生成，请查看日志文件: $LOG_FILE"
 
 # 退出状态
-if [ $success_rate -ge 70 ]; then
+if [ "$GLOBAL_FAILURES" -gt 0 ]; then
+    print_info "检测到 $GLOBAL_FAILURES 条明确失败，输出 Hive 相关容器诊断日志"
+    for container in hive-server2 hive-metastore hive-cli; do
+        print_info "[诊断] $container 最近 80 行日志"
+        docker logs --tail 80 "$container" 2>&1 || true
+    done
+fi
+
+if [ $success_rate -ge 70 ] && [ "$GLOBAL_FAILURES" -eq 0 ]; then
     exit 0
 else
     exit 1

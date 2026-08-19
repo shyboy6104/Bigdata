@@ -1,5 +1,3 @@
-version: '3.8'
-
 x-flink-taskmanager: &flink-taskmanager
   image: bigdata-flink:latest
   entrypoint: /opt/flink/bin/taskmanager.sh

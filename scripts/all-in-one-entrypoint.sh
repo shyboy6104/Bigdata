@@ -49,7 +49,7 @@ export HADOOP_CLASSPATH=$HADOOP_HOME/etc/hadoop:$HADOOP_HOME/share/hadoop/common
 # ===============================================
 
 export HADOOP_HEAPSIZE=${HADOOP_HEAPSIZE:-512}
-export HADOOP_NAMENODE_OPTS="-Xmx512m"
+export HADOOP_NAMENODE_OPTS="${HADOOP_NAMENODE_OPTS:--Xmx512m}"
 export HADOOP_DATANODE_OPTS="${HADOOP_DATANODE_OPTS:--Xmx256m}"
 export YARN_RESOURCEMANAGER_HEAPSIZE=${YARN_RESOURCEMANAGER_HEAPSIZE:-512}
 export YARN_NODEMANAGER_HEAPSIZE=${YARN_NODEMANAGER_HEAPSIZE:-512}
@@ -64,7 +64,9 @@ export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS:--Xmx512m -Xms512m}"
 export HIVE_METASTORE_HEAPSIZE=${HIVE_METASTORE_HEAPSIZE:-512}
 export HIVE_SERVER2_HEAPSIZE=${HIVE_SERVER2_HEAPSIZE:-1024}
 
-export SPARK_MASTER_MEMORY=${SPARK_MASTER_MEMORY:-512m}
+export SPARK_DAEMON_MEMORY=${SPARK_DAEMON_MEMORY:-512m}
+export SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-512m}
+export SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-512m}
 export SPARK_WORKER_MEMORY=${SPARK_WORKER_MEMORY:-512m}
 
 export JOBMANAGER_MEMORY_PROCESS_SIZE=${JOBMANAGER_MEMORY_PROCESS_SIZE:-512m}
@@ -106,6 +108,31 @@ copy_supervisor_config() {
     else
         echo "警告: Supervisor配置文件不存在: $src"
     fi
+}
+
+# Compose 是五节点资源预算的权威入口。这里把环境变量渲染到
+# Apache Flink 实际读取的 YAML，entrypoint 中的值仅作为缺省值。
+set_flink_config() {
+    local key=$1
+    local value=$2
+    local file="$FLINK_CONF_DIR/flink-conf.yaml"
+
+    if grep -q "^${key}:" "$file"; then
+        sed -i "s|^${key}:.*|${key}: ${value}|" "$file"
+    else
+        echo "${key}: ${value}" >> "$file"
+    fi
+}
+
+apply_runtime_memory_config() {
+    case "$NODE_TYPE" in
+        "master")
+            set_flink_config "jobmanager.memory.process.size" "$JOBMANAGER_MEMORY_PROCESS_SIZE"
+            ;;
+        "worker-1" | "worker-2" | "worker-3")
+            set_flink_config "taskmanager.memory.process.size" "$TASKMANAGER_MEMORY_PROCESS_SIZE"
+            ;;
+    esac
 }
 
 # ===============================================
@@ -283,13 +310,13 @@ check_kafka() {
 }
 
 check_hbase_master() {
-    if check_port "localhost" 16000; then return 0; fi
+    if check_process "org.apache.hadoop.hbase.master.HMaster" || check_port "$(hostname)" 16000; then return 0; fi
     log "HBase Master服务异常，尝试恢复..."
     restart_supervisor_service "hbase-master"
 }
 
 check_hbase_regionserver() {
-    if check_port "localhost" 16020; then return 0; fi
+    if check_process "org.apache.hadoop.hbase.regionserver.HRegionServer" || check_port "$(hostname)" 16020; then return 0; fi
     log "HBase RegionServer服务异常，尝试恢复..."
     restart_supervisor_service "hbase-regionserver"
 }
@@ -319,7 +346,8 @@ check_flink_jobmanager() {
 }
 
 check_flink_taskmanager() {
-    if check_port "localhost" 6122; then return 0; fi
+    # Flink 1.14 的 TaskManager RPC 端口可动态分配，不能用固定 6122 判断。
+    if check_process "org.apache.flink.runtime.taskexecutor.TaskManagerRunner"; then return 0; fi
     log "Flink TaskManager服务异常，尝试恢复..."
     restart_supervisor_service "flink-taskmanager"
 }
@@ -796,13 +824,11 @@ start_services_sequentially() {
                     echo "HDFS安全模式已退出 (等待了 ${safemode_wait}s)"
                     break
                 fi
-                if [ -z "$safemode_status" ]; then
-                    local dn_count=$($HADOOP_HOME/bin/hdfs dfsadmin -report 2>/dev/null | grep "Live datanodes" | grep -o "[0-9]*" | head -1)
-                    if [ -n "$dn_count" ] && [ "$dn_count" -ge 1 ]; then
-                        echo "检测到 $dn_count 个DataNode已上线，尝试离开安全模式..."
-                        $HADOOP_HOME/bin/hdfs dfsadmin -safemode leave 2>/dev/null
-                        sleep 3
-                    fi
+                local dn_count=$($HADOOP_HOME/bin/hdfs dfsadmin -report 2>/dev/null | grep "Live datanodes" | grep -o "[0-9]*" | head -1)
+                if [ -n "$dn_count" ] && [ "$dn_count" -ge 3 ]; then
+                    echo "检测到 $dn_count 个DataNode已上线，主动离开安全模式..."
+                    $HADOOP_HOME/bin/hdfs dfsadmin -safemode leave 2>/dev/null
+                    sleep 3
                 fi
                 echo "HDFS仍在安全模式中... (${safemode_wait}s)"
                 sleep 5
@@ -1017,6 +1043,8 @@ main() {
             exit 1
             ;;
     esac
+
+    apply_runtime_memory_config
 
     echo "启动Supervisor进程管理器..."
     /usr/bin/supervisord -c /etc/supervisor/supervisord.conf

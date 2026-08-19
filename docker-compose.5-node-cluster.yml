@@ -6,8 +6,6 @@
 # 内存限制：严格控制在16GB物理内存环境下运行
 # ===============================================
 
-version: '3.8'
-
 # ===============================================
 # 网络配置
 # 作用：定义容器网络，确保节点间通信
@@ -105,7 +103,9 @@ services:
       - HBASE_MASTER_OPTS=-Xmx512m
       - HIVE_METASTORE_HEAPSIZE=512
       - HIVE_SERVER2_HEAPSIZE=1024
-      - SPARK_MASTER_MEMORY=512m
+      - SPARK_DAEMON_MEMORY=512m
+      - SPARK_DRIVER_MEMORY=512m
+      - SPARK_EXECUTOR_MEMORY=512m
       - JOBMANAGER_MEMORY_PROCESS_SIZE=512m
 
   # ===============================================
@@ -138,6 +138,7 @@ services:
       - HBASE_REGIONSERVER_OPTS=-Xmx1024m
       - SERVER_JVMFLAGS=-Xmx128m
       - KAFKA_HEAP_OPTS=-Xmx512m -Xms512m
+      - SPARK_DAEMON_MEMORY=512m
       - SPARK_WORKER_MEMORY=512m
       - TASKMANAGER_MEMORY_PROCESS_SIZE=512m
       # ZooKeeper节点ID
@@ -173,6 +174,7 @@ services:
       - HBASE_REGIONSERVER_OPTS=-Xmx1024m
       - SERVER_JVMFLAGS=-Xmx128m
       - KAFKA_HEAP_OPTS=-Xmx512m -Xms512m
+      - SPARK_DAEMON_MEMORY=512m
       - SPARK_WORKER_MEMORY=512m
       - TASKMANAGER_MEMORY_PROCESS_SIZE=512m
       # ZooKeeper节点ID
@@ -208,6 +210,7 @@ services:
       - HBASE_REGIONSERVER_OPTS=-Xmx1024m
       - SERVER_JVMFLAGS=-Xmx128m
       - KAFKA_HEAP_OPTS=-Xmx512m -Xms512m
+      - SPARK_DAEMON_MEMORY=512m
       - SPARK_WORKER_MEMORY=512m
       - TASKMANAGER_MEMORY_PROCESS_SIZE=512m
       # ZooKeeper节点ID

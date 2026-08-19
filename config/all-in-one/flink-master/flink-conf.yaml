@@ -1,18 +1,43 @@
+# ===============================================
+# Flink JobManager 节点配置文件
+# 作用：配置作业调度、集群通信、进程内存、Web REST 和状态存储
+# 原理：JobManager 接收作业、生成执行图，并把 Task 调度到各 TaskManager
+# 节点类型：五节点架构的 master
+# ===============================================
+
+# JobManager RPC 地址与端口：TaskManager 通过它向 Master 注册。
 jobmanager.rpc.address: master
 jobmanager.rpc.port: 6123
-jobmanager.memory.process.size: 1024m
+
+# ===============================================
+# JobManager 进程内存
+# process.size 是容器内 JobManager Java 进程的总内存预算，不只是 Java 堆。
+# 其内部还包括框架堆、框架堆外、Metaspace 和 JVM Overhead。
+# 512 MiB 是教学环境的小内存方案，因此显式压缩各保留区，避免 Flink 拒绝启动。
+# ===============================================
+jobmanager.memory.process.size: 512m
+jobmanager.memory.framework.heap.size: 64m
+jobmanager.memory.framework.off-heap.size: 64m
+jobmanager.memory.jvm-metaspace.size: 96m
+jobmanager.memory.jvm-overhead.min: 64m
+jobmanager.memory.jvm-overhead.max: 64m
+
+# 监听全部容器网络接口，使 Worker 和宿主机端口映射都能访问。
 jobmanager.bind-host: 0.0.0.0
 
-taskmanager.memory.process.size: 1024m
-taskmanager.numberOfTaskSlots: 2
-taskmanager.host: master
-
+# REST/Dashboard 地址：集群内部使用 master:8081，Compose 映射到宿主机 28081。
 rest.address: master
 rest.port: 8081
 rest.bind-address: 0.0.0.0
 
+# ===============================================
+# 状态、Checkpoint 与 Savepoint
+# state.backend=jobmanager 适合教学和小状态作业，不建议用于大型生产状态。
+# Checkpoint 用于自动容错恢复，Savepoint 用于人工触发的版本迁移或升级。
+# ===============================================
 state.backend: jobmanager
 state.checkpoints.dir: file:///opt/flink/checkpoints
 state.savepoints.dir: file:///opt/flink/savepoints
 
+# 未在作业中显式设置时使用的默认并行度。
 parallelism.default: 2

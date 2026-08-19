@@ -10,10 +10,19 @@ LOG_FILE="$LOG_DIR/test-spark-$(date +%Y%m%d-%H%M%S).log"
 # 创建日志目录
 mkdir -p "$LOG_DIR"
 
+# 将脚本内所有 echo、docker、curl 的标准输出和错误统一写入日志，
+# 避免只有少量 log() 调用进入文件、关键失败输出只停留在终端。
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 # 日志函数
 log() {
-    echo "$1" | tee -a "$LOG_FILE"
+    echo "$1"
 }
+
+standalone_ok=false
+yarn_ok=false
+sql_ok=false
+streaming_ok=false
 
 log "=== Spark 集群测试 ==="
 log "测试开始时间: $(date)"
@@ -126,6 +135,7 @@ standalone_output=$(docker exec spark-master /opt/spark/bin/spark-submit \
 
 if echo "$standalone_output" | grep -q "Pi is roughly"; then
     echo "✓ Spark standalone 作业执行成功"
+    standalone_ok=true
     pi_result=$(echo "$standalone_output" | grep "Pi is roughly")
     echo "  $pi_result"
 else
@@ -157,6 +167,7 @@ yarn_output=$(docker exec spark-master /opt/spark/bin/spark-submit \
 
 if echo "$yarn_output" | grep -q "Pi is roughly"; then
     echo "✓ Spark on YARN 作业执行成功"
+    yarn_ok=true
     pi_result=$(echo "$yarn_output" | grep "Pi is roughly")
     echo "  $pi_result"
 else
@@ -200,6 +211,7 @@ sql_output=$(docker exec spark-master /opt/spark/bin/spark-shell --master spark:
 
 if echo "$sql_output" | grep -q "Spark SQL Test Result"; then
     echo "✓ Spark SQL 功能测试成功"
+    sql_ok=true
     echo "  查询结果:"
     echo "$sql_output" | grep -A 10 "=== Spark SQL Test Result ===" | sed 's/^/  /'
 else
@@ -228,6 +240,7 @@ streaming_output=$(docker exec spark-master /opt/spark/bin/spark-shell --master 
 
 if echo "$streaming_output" | grep -q "Spark Streaming test completed"; then
     echo "✓ Spark Streaming 功能测试成功"
+    streaming_ok=true
 else
     echo "⚠ Spark Streaming 功能测试存在问题"
     echo "  输出: $streaming_output"
@@ -254,10 +267,32 @@ if [ "$worker1_status" = "200" ] || [ "$worker2_status" = "200" ]; then
 else
     echo "- Spark Worker Web UI: ⚠ 异常"
 fi
-echo "- Spark standalone 模式: $([ -n "$pi_result" ] && echo "✓ 正常" || echo "✗ 异常")"
-echo "- Spark on YARN 模式: $([ -n "$(echo "$yarn_output" | grep 'Pi is roughly')" ] && echo "✓ 正常" || echo "✗ 异常")"
-echo "- Spark SQL 功能: $([ -n "$(echo \"$sql_output\" | grep 'Spark SQL Test Result')" ] && echo "✓ 正常" || echo "✗ 异常")"
-echo "- Spark Streaming 功能: $([ -n "$(echo "$streaming_output" | grep 'Spark Streaming test completed')" ] && echo "✓ 正常" || echo "⚠ 异常")"
+echo "- Spark standalone 模式: $([ "$standalone_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
+echo "- Spark on YARN 模式: $([ "$yarn_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
+echo "- Spark SQL 功能: $([ "$sql_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
+echo "- Spark Streaming 功能: $([ "$streaming_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
 
 echo
 echo "详细测试报告已生成，Spark 集群功能验证完成！"
+echo "详细日志: $LOG_FILE"
+
+failure_count=0
+[ "$master_status" = "200" ] || failure_count=$((failure_count + 1))
+if [ "$worker1_status" != "200" ] && [ "$worker2_status" != "200" ]; then
+    failure_count=$((failure_count + 1))
+fi
+[ "$standalone_ok" = true ] || failure_count=$((failure_count + 1))
+[ "$yarn_ok" = true ] || failure_count=$((failure_count + 1))
+[ "$sql_ok" = true ] || failure_count=$((failure_count + 1))
+[ "$streaming_ok" = true ] || failure_count=$((failure_count + 1))
+
+if [ "$failure_count" -gt 0 ]; then
+    echo "[诊断] 检测到 $failure_count 个关键环节失败，输出 Spark 容器最近日志。"
+    for container in spark-master spark-worker1 spark-worker2; do
+        echo "[诊断] $container 最近 80 行日志："
+        docker logs --tail 80 "$container" 2>&1 || true
+    done
+    exit 1
+fi
+
+exit 0

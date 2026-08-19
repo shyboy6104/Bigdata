@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   flume-kafka:
     image: bigdata-flume:latest

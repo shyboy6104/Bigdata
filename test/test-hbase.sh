@@ -7,8 +7,13 @@ LOG_FILE="$LOG_DIR/test-hbase-$(date +%Y%m%d-%H%M%S).log"
 
 mkdir -p "$LOG_DIR"
 
+# 捕获所有终端输出，确保 HBase Shell 原始结果、容器状态和错误信息进入日志。
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+GLOBAL_FAILURES=0
+
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 RED='\033[0;31m'
@@ -31,11 +36,12 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+    GLOBAL_FAILURES=$((GLOBAL_FAILURES + 1))
 }
 
 check_command() {
     if ! command -v "$1" &> /dev/null; then
-        print_error "Command $1 not found, please install it first"
+        print_error "命令 $1 不存在，请先安装后再运行测试"
         exit 1
     fi
 }
@@ -70,36 +76,36 @@ execute_hbase_command() {
     local exit_code=$?
     
     if [ $exit_code -ne 0 ]; then
-        print_error "   ✗ $description (timeout or error)"
-        log "$description failed - exit code: $exit_code"
+        print_error "   ✗ $description（超时或命令错误）"
+        log "$description 失败 - 退出码: $exit_code"
         return 1
     fi
     
     if echo "$output" | grep -q "$expected_pattern"; then
         print_success "   ✓ $description"
-        log "$description success"
+        log "$description 成功"
         return 0
     elif echo "$output" | grep -qi "error\|exception\|failed"; then
         print_error "   ✗ $description"
-        log "$description failed - output: $(echo "$output" | tail -5)"
+        log "$description 失败 - 输出: $(echo "$output" | tail -5)"
         return 1
     else
-        print_warning "   ⚠ $description (uncertain)"
-        log "$description uncertain - output: $(echo "$output" | tail -5)"
+        print_warning "   ⚠ $description（结果不确定）"
+        log "$description 结果不确定 - 输出: $(echo "$output" | tail -5)"
         return 2
     fi
 }
 
 check_command docker
 
-log "=== HBase Cluster Test ==="
-print_info "=== HBase Cluster Test ==="
-print_info "Test Time: $(date)"
-print_info "Log file: $LOG_FILE"
+log "=== HBase 集群测试 ==="
+print_info "=== HBase 集群测试 ==="
+print_info "测试时间: $(date)"
+print_info "日志文件: $LOG_FILE"
 log ""
 
-print_info "1. Checking HBase container status..."
-log "Checking HBase container status"
+print_info "1. 检查 HBase 容器状态..."
+log "检查 HBase 容器状态"
 
 all_running=true
 containers=("hbase-master" "hbase-regionserver1" "hbase-regionserver2")
@@ -107,130 +113,130 @@ containers=("hbase-master" "hbase-regionserver1" "hbase-regionserver2")
 for container in "${containers[@]}"; do
     if check_container "$container"; then
         container_status=$(docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep "$container")
-        print_success "   $container: Running"
+        print_success "   $container: 运行中"
         echo "      $container_status"
     else
-        print_error "   $container: Not running"
+        print_error "   $container: 未运行"
         all_running=false
     fi
 done
 
 if [ "$all_running" = "false" ]; then
-    print_error "Some containers are not running, please check cluster status"
+    print_error "部分容器未运行，请检查 Compose 状态和容器日志"
     exit 1
 fi
 
-print_success "All HBase containers are running"
+print_success "所有 HBase 容器均在运行"
 log ""
 
-print_info "2. Testing HBase service accessibility..."
-log "Testing HBase service accessibility"
+print_info "2. 测试 HBase 服务可访问性..."
+log "测试 HBase 服务可访问性"
 
-print_info "   Checking HBase Master Web UI..."
+print_info "   检查 HBase Master Web UI..."
 if curl -s http://localhost:16210/master-status >/dev/null 2>&1; then
-    print_success "   ✓ HBase Master Web UI accessible"
-    log "HBase Master Web UI accessible"
+    print_success "   ✓ HBase Master Web UI 可访问"
+    log "HBase Master Web UI 可访问"
 else
-    print_error "   ✗ HBase Master Web UI not accessible"
-    log "HBase Master Web UI not accessible"
+    print_error "   ✗ HBase Master Web UI 不可访问"
+    log "HBase Master Web UI 不可访问"
 fi
 
-print_info "   Checking HBase Shell connection..."
+print_info "   检查 HBase Shell 连接..."
 shell_output=$(run_hbase_shell "hbase-master" "version")
 if echo "$shell_output" | grep -q "2.2.3"; then
-    print_success "   ✓ HBase Shell connection normal"
-    log "HBase Shell connection normal"
+    print_success "   ✓ HBase Shell 连接正常"
+    log "HBase Shell 连接正常"
 else
-    print_error "   ✗ HBase Shell connection abnormal"
-    log "HBase Shell connection abnormal"
+    print_error "   ✗ HBase Shell 连接异常"
+    log "HBase Shell 连接异常"
 fi
 
 log ""
 
-print_info "3. Testing HBase basic functions..."
-log "Testing HBase basic functions"
+print_info "3. 测试 HBase 基本功能..."
+log "测试 HBase 基本功能"
 
-print_info "   Cleaning up existing test tables..."
+print_info "   清理可能残留的测试表..."
 run_hbase_shell "hbase-master" "disable 'test_table'" >/dev/null 2>&1
 run_hbase_shell "hbase-master" "drop 'test_table'" >/dev/null 2>&1
-print_info "   Test table cleanup done"
+print_info "   测试表预清理完成"
 
-if execute_hbase_command "hbase-master" "create 'test_table', 'cf1', 'cf2'" "Created table" "Create test table"; then
-    execute_hbase_command "hbase-master" "put 'test_table', 'row1', 'cf1:name', 'John'" "Took" "Insert data row1"
-    execute_hbase_command "hbase-master" "put 'test_table', 'row1', 'cf1:age', '25'" "Took" "Insert data row1-age"
-    execute_hbase_command "hbase-master" "put 'test_table', 'row2', 'cf1:name', 'Jane'" "Took" "Insert data row2"
+if execute_hbase_command "hbase-master" "create 'test_table', 'cf1', 'cf2'" "Created table" "创建测试表"; then
+    execute_hbase_command "hbase-master" "put 'test_table', 'row1', 'cf1:name', 'John'" "Took" "写入 row1 姓名"
+    execute_hbase_command "hbase-master" "put 'test_table', 'row1', 'cf1:age', '25'" "Took" "写入 row1 年龄"
+    execute_hbase_command "hbase-master" "put 'test_table', 'row2', 'cf1:name', 'Jane'" "Took" "写入 row2 姓名"
     
-    execute_hbase_command "hbase-master" "scan 'test_table'" "row1" "Scan table data"
-    execute_hbase_command "hbase-master" "get 'test_table', 'row1'" "cf1:name" "Get specific row"
+    execute_hbase_command "hbase-master" "scan 'test_table'" "row1" "扫描测试表数据"
+    execute_hbase_command "hbase-master" "get 'test_table', 'row1'" "cf1:name" "读取指定行"
     
-    execute_hbase_command "hbase-master" "describe 'test_table'" "test_table" "Describe table"
+    execute_hbase_command "hbase-master" "describe 'test_table'" "test_table" "查看表结构"
     
-    execute_hbase_command "hbase-master" "count 'test_table'" "row(s)" "Count table rows"
+    execute_hbase_command "hbase-master" "count 'test_table'" "row(s)" "统计表行数"
     
-    execute_hbase_command "hbase-master" "list" "test_table" "List all tables"
+    execute_hbase_command "hbase-master" "list" "test_table" "列出所有表"
     
-    print_success "   HBase basic function test completed"
+    print_success "   HBase 基本功能测试完成"
 else
-    print_error "   Table creation failed, skipping subsequent tests"
+    print_error "   测试表创建失败，跳过后续数据操作"
 fi
 
 log ""
 
-print_info "4. Testing HBase cluster status..."
-log "Testing HBase cluster status"
+print_info "4. 测试 HBase 集群状态..."
+log "测试 HBase 集群状态"
 
-print_info "   Checking RegionServer status..."
+print_info "   检查 RegionServer 状态..."
 region_servers=$(run_hbase_shell "hbase-master" "status" 2>/dev/null | grep -oE '[0-9]+ servers' | head -1 | grep -oE '[0-9]+')
 if [ -n "$region_servers" ] && [ "$region_servers" -ge 2 ]; then
-    print_success "   ✓ RegionServer count normal: $region_servers"
-    log "RegionServer count normal: $region_servers"
+    print_success "   ✓ RegionServer 数量正常: $region_servers"
+    log "RegionServer 数量正常: $region_servers"
 else
-    print_error "   ✗ RegionServer count abnormal: ${region_servers:-0}"
-    log "RegionServer count abnormal: ${region_servers:-0}"
+    print_error "   ✗ RegionServer 数量异常: ${region_servers:-0}"
+    log "RegionServer 数量异常: ${region_servers:-0}"
 fi
 
-print_info "   Checking table distribution..."
+print_info "   检查测试表 Region 信息..."
 table_status=$(run_hbase_shell "hbase-master" "status 'detailed'" 2>/dev/null | grep -A 5 'test_table' | head -3)
 if echo "$table_status" | grep -q "test_table"; then
-    print_success "   ✓ Table distribution normal"
-    log "Table distribution normal"
+    print_success "   ✓ 能够读取测试表 Region 信息"
+    log "能够读取测试表 Region 信息"
 else
-    print_warning "   ⚠ Table distribution abnormal"
-    log "Table distribution abnormal"
+    print_warning "   ⚠ 未从详细状态中读取到测试表 Region 信息"
+    log "未读取到测试表 Region 信息"
 fi
 
 log ""
 
-print_info "5. Cleaning up test data..."
-log "Cleaning up test data"
+print_info "5. 清理测试数据..."
+log "清理测试数据"
 
 disable_output=$(run_hbase_shell "hbase-master" "disable 'test_table'" 2>/dev/null)
 drop_output=$(run_hbase_shell "hbase-master" "drop 'test_table'" 2>/dev/null)
 
 if echo "$drop_output" | grep -q "Took"; then
-    print_success "   Test data cleanup completed"
-    log "Test data cleanup completed"
+    print_success "   测试数据清理完成"
+    log "测试数据清理完成"
 else
-    print_warning "   Test data cleanup uncertain"
-    log "Test data cleanup uncertain"
+    print_warning "   测试数据清理结果不确定"
+    log "测试数据清理结果不确定"
 fi
 
 log ""
 
-print_info "6. Generating test report..."
-log "Generating test report"
+print_info "6. 生成测试报告..."
+log "生成测试报告"
 
 log ""
-print_info "=== HBase Cluster Test Completed ==="
-print_info "Test Time: $(date)"
-print_info "Log file: $LOG_FILE"
+print_info "=== HBase 集群测试完成 ==="
+print_info "测试时间: $(date)"
+print_info "日志文件: $LOG_FILE"
 log ""
 
-print_info "=== Test Summary ==="
+print_info "=== 测试汇总 ==="
 if [ "$all_running" = "true" ]; then
-    print_success "✓ HBase cluster status: Normal"
+    print_success "✓ HBase 集群容器状态: 正常"
 else
-    print_error "✗ HBase cluster status: Abnormal"
+    print_error "✗ HBase 集群容器状态: 异常"
 fi
 
 function_count=4
@@ -238,18 +244,18 @@ success_count=0
 
 if [ "$all_running" = "true" ]; then
     ((success_count++))
-    echo "Container status: Normal"
+    echo "容器状态: 正常"
 fi
 
 if curl -s http://localhost:16210/master-status >/dev/null 2>&1; then
     ((success_count++))
-    echo "Service accessibility: Normal"
+    echo "服务可访问性: 正常"
 fi
 
 check_output=$(run_hbase_shell "hbase-master" "create 'test_check_table', 'cf1'" 2>/dev/null)
 if echo "$check_output" | grep -q "Created table"; then
     ((success_count++))
-    echo "Basic functions: Normal"
+    echo "基本功能: 正常"
     run_hbase_shell "hbase-master" "disable 'test_check_table'" >/dev/null 2>&1
     run_hbase_shell "hbase-master" "drop 'test_check_table'" >/dev/null 2>&1
 fi
@@ -257,32 +263,40 @@ fi
 region_servers=$(run_hbase_shell "hbase-master" "status" 2>/dev/null | grep -oE '[0-9]+ servers' | head -1 | grep -oE '[0-9]+')
 if [ -n "$region_servers" ] && [ "$region_servers" -ge 2 ]; then
     ((success_count++))
-    echo "Cluster status: Normal"
+    echo "集群状态: 正常"
 fi
 
 success_rate=$(( success_count * 100 / function_count ))
 
-print_info "Key function tests: $success_count/$function_count"
-print_info "Overall success rate: ${success_rate}%"
+print_info "关键功能测试: $success_count/$function_count"
+print_info "总体成功率: ${success_rate}%"
 
 if [ $success_rate -ge 80 ]; then
-    print_success "✓ HBase cluster functions: Excellent"
+    print_success "✓ HBase 集群功能: 正常"
 elif [ $success_rate -ge 60 ]; then
-    print_warning "⚠ HBase cluster functions: Fair"
+    print_warning "⚠ HBase 集群功能: 部分可用"
 else
-    print_error "✗ HBase cluster functions: Abnormal"
+    print_error "✗ HBase 集群功能: 异常"
 fi
 
-log "Test completed - Key function tests: $success_count/$function_count, success rate: ${success_rate}%"
+log "测试完成 - 关键功能: $success_count/$function_count，成功率: ${success_rate}%"
 
 log ""
-print_success "=== HBase Cluster Function Verification Completed ==="
-print_info "Detailed test report generated, please check log file: $LOG_FILE"
+print_success "=== HBase 集群功能验证完成 ==="
+print_info "详细测试报告已生成，请查看日志文件: $LOG_FILE"
 
-log "Test end time: $(date)"
-log "Test results saved to: $LOG_FILE"
+log "测试结束时间: $(date)"
+log "测试结果保存到: $LOG_FILE"
 
-if [ $success_rate -ge 70 ]; then
+if [ "$GLOBAL_FAILURES" -gt 0 ]; then
+    print_info "检测到 $GLOBAL_FAILURES 条明确失败，输出 HBase 容器诊断日志"
+    for container in hbase-master hbase-regionserver1 hbase-regionserver2; do
+        print_info "[诊断] $container 最近 80 行日志"
+        docker logs --tail 80 "$container" 2>&1 || true
+    done
+fi
+
+if [ $success_rate -ge 70 ] && [ "$GLOBAL_FAILURES" -eq 0 ]; then
     exit 0
 else
     exit 1

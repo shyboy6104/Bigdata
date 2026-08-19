@@ -23,9 +23,19 @@ LOG_FILE="$LOG_DIR/test-hadoop-ha-$(date +%Y%m%d-%H%M%S).log"
 # 创建日志目录（如果不存在）
 mkdir -p "$LOG_DIR"
 
+# 捕获脚本中全部标准输出和错误，使故障转移、HDFS、YARN 与
+# MapReduce 的原始命令输出都进入同一份日志。
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+FAIL_COUNT=0
+mapreduce_ok=false
+
 # 日志函数：同时输出到终端和日志文件
 log() {
-    echo "$1" | tee -a "$LOG_FILE"
+    echo "$1"
+    case "$1" in
+        *"✗"*) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+    esac
 }
 
 # ===============================================
@@ -312,6 +322,7 @@ if [ -n "$active_nn" ]; then
         result=$(docker exec $active_nn hdfs dfs -cat /test/ha-wordcount/output/part-r-00000 2>/dev/null)
         if [ -n "$result" ]; then
             echo "✓ 作业结果验证成功"
+            mapreduce_ok=true
         else
             echo "✗ 作业结果验证失败"
         fi
@@ -340,6 +351,7 @@ log "- HDFS 文件系统: $([ -n "$hdfs_status" ] && echo "✓ 正常" || echo "
 log "- 数据同步: $([ "$standby_content" = "Hadoop HA Test Data" ] && echo "✓ 正常" || echo "✗ 异常")"
 log "- 故障转移: $([ "$new_nn1_status" != "$nn1_status" ] && echo "✓ 正常" || echo "✗ 异常")"
 log "- YARN 资源管理: $([ -n "$yarn_nodes" ] && echo "✓ 正常" || echo "✗ 异常")"
+log "- MapReduce 作业: $([ "$mapreduce_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
 
 log ""
 log "详细测试报告已生成，Hadoop HA 高可用集群功能验证完成！"
@@ -347,3 +359,14 @@ log "详细测试报告已生成，Hadoop HA 高可用集群功能验证完成�
 # 记录测试结束时间
 log "测试结束时间: $(date)"
 log "测试结果已保存到: $LOG_FILE"
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    log "[诊断] 检测到 $FAIL_COUNT 条失败结果，输出 HA 核心容器最近日志。"
+    for container in namenode1 namenode2 journalnode1 journalnode2 journalnode3 datanode1 datanode2; do
+        log "[诊断] $container 最近 60 行日志："
+        docker logs --tail 60 "$container" 2>&1 || true
+    done
+    exit 1
+fi
+
+exit 0

@@ -93,7 +93,10 @@ if [ -f "$META_FILE" ]; then
         
         if [ "$ZK_AVAILABLE" = true ]; then
             LOCAL_CLUSTER_ID=$(grep "^cluster.id=" "$META_FILE" 2>/dev/null | cut -d'=' -f2)
-            ZK_CLUSTER_ID=$(echo "get /cluster/id" | /opt/kafka/bin/zookeeper-shell.sh "$ZK_CONNECT" 2>/dev/null | grep -o '"id" : "[^"]*"' | head -1 | cut -d'"' -f4)
+            # Kafka 2.4 通常返回紧凑 JSON（如 {"id":"..."}），也兼容带空格格式。
+            ZK_CLUSTER_ID=$(echo "get /cluster/id" | /opt/kafka/bin/zookeeper-shell.sh "$ZK_CONNECT" 2>/dev/null \
+                | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                | head -1)
             
             if [ -n "$LOCAL_CLUSTER_ID" ] && [ -n "$ZK_CLUSTER_ID" ] && [ "$LOCAL_CLUSTER_ID" != "$ZK_CLUSTER_ID" ]; then
                 echo "ClusterId不一致! 本地: $LOCAL_CLUSTER_ID, ZooKeeper: $ZK_CLUSTER_ID"

@@ -33,6 +33,9 @@ export HADOOP_CONF_DIR=${HADOOP_CONF_DIR:-/opt/spark/conf}
 # 配置内容：可能包含版本信息、集群参数等自定义配置
 # ===============================================
 
+# Docker Compose 显式传入的部署模式优先于共享环境文件中的默认值。
+REQUESTED_HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-}
+
 # 加载环境配置
 if [ -f /config/environment.conf ]; then
     source /config/environment.conf
@@ -46,7 +49,7 @@ fi
 # ===============================================
 
 # 设置默认Hadoop环境
-export HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+export HADOOP_ENVIRONMENT=${REQUESTED_HADOOP_ENVIRONMENT:-${HADOOP_ENVIRONMENT:-ha}}
 
 # ===============================================
 # 配置目录准备

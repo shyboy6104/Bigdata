@@ -83,11 +83,13 @@ cp -r /config/hive/* $HIVE_HOME/conf/
 mkdir -p /opt/hadoop/etc/hadoop
 export HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
 
+REQUESTED_HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-}
+
 if [ -f /config/environment.conf ]; then
     source /config/environment.conf
 fi
 
-export HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-standard}
+export HADOOP_ENVIRONMENT=${REQUESTED_HADOOP_ENVIRONMENT:-${HADOOP_ENVIRONMENT:-standard}}
 
 if [ "$HADOOP_ENVIRONMENT" = "ha" ]; then
     cp -r /config/hadoop-ha/* $HADOOP_CONF_DIR/

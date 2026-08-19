@@ -7,11 +7,10 @@ LOG_FILE="$LOG_DIR/test-zookeeper-$(date +%Y%m%d-%H%M%S).log"
 # 创建日志目录
 mkdir -p "$LOG_DIR"
 
-# 日志函数
-log() {
-    echo "$1" | tee -a "$LOG_FILE"
-}
+# 捕获所有终端输出，节点模式、zkCli 原始结果和诊断信息统一进入日志。
+exec > >(tee -a "$LOG_FILE") 2>&1
 
+GLOBAL_FAILURES=0
 
 # 设置字符编码
 export LANG=en_US.UTF-8
@@ -23,9 +22,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
-
-# 日志文件
-LOG_FILE="zookeeper-test-$(date +%Y%m%d-%H%M%S).log"
 
 # 函数：打印带颜色的消息
 print_info() {
@@ -42,11 +38,12 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+    GLOBAL_FAILURES=$((GLOBAL_FAILURES + 1))
 }
 
 # 函数：记录日志
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 # 函数：检查命令是否存在
@@ -725,14 +722,20 @@ log ""
 print_success "=== ZooKeeper 集群功能验证完成 ==="
 print_info "详细测试报告已生成，请查看日志文件: $LOG_FILE"
 
+log "测试结束时间: $(date)"
+log "测试结果已保存到: $LOG_FILE"
+
+if [ "$GLOBAL_FAILURES" -gt 0 ]; then
+    print_info "检测到 $GLOBAL_FAILURES 条明确失败，输出 ZooKeeper 容器诊断日志"
+    for container in zoo1 zoo2 zoo3; do
+        print_info "[诊断] $container 最近 80 行日志"
+        docker logs --tail 80 "$container" 2>&1 || true
+    done
+fi
+
 # 退出状态
-if [ $success_rate -ge 80 ]; then
+if [ $success_rate -ge 80 ] && [ "$GLOBAL_FAILURES" -eq 0 ]; then
     exit 0
 else
     exit 1
 fi
-
-# 记录测试结束时间
-log "测试结束时间: $(date)"
-log "测试结果已保存到: $LOG_FILE"
-

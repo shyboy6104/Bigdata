@@ -68,6 +68,9 @@ export HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
 # 配置内容：可能包含版本信息、集群参数等自定义配置
 # ===============================================
 
+# Docker Compose 显式传入的部署模式优先于共享环境文件中的默认值。
+REQUESTED_HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-}
+
 # 复制正确的Hadoop配置文件到容器中
 if [ -f /config/environment.conf ]; then
     source /config/environment.conf
@@ -80,7 +83,7 @@ fi
 # 默认值：standard（标准环境），支持ha（高可用环境）
 # ===============================================
 
-export HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-standard}
+export HADOOP_ENVIRONMENT=${REQUESTED_HADOOP_ENVIRONMENT:-${HADOOP_ENVIRONMENT:-standard}}
 
 echo "Using Hadoop environment: $HADOOP_ENVIRONMENT"
 
@@ -127,14 +130,16 @@ echo "Creating HBase directories in HDFS..."
 hdfs dfs -mkdir -p /hbase
 hdfs dfs -chmod 755 /hbase
 
-# 启动HBase Master服务
-echo "Starting HBase Master..."
-$HBASE_HOME/bin/hbase-daemon.sh start master
-
-# 如果是RegionServer节点，启动RegionServer
-if [[ "$HOSTNAME" == *"regionserver"* ]]; then
+# 每个容器只启动与其角色对应的守护进程。
+if [[ "$HOSTNAME" == *"master"* ]]; then
+    echo "Starting HBase Master..."
+    $HBASE_HOME/bin/hbase-daemon.sh start master
+elif [[ "$HOSTNAME" == *"regionserver"* ]]; then
     echo "Starting HBase RegionServer..."
     $HBASE_HOME/bin/hbase-daemon.sh start regionserver
+else
+    echo "Error: cannot determine HBase role from hostname '$HOSTNAME'"
+    exit 1
 fi
 
 # 等待HBase服务完全启动

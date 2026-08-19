@@ -1,56 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <!-- ===============================================
-Hadoop Worker节点核心配置文件
-作用：定义Worker节点与Master节点的连接配置
-原理：配置DataNode和NodeManager的基础参数
-节点类型：worker-1/2/3节点专用配置
+Hadoop Worker 节点核心配置文件
+作用：定义 Worker 访问 HDFS 时使用的公共客户端参数
+原理：DataNode、NodeManager 及计算任务通过 fs.defaultFS 定位 Master NameNode
+节点类型：worker-1、worker-2、worker-3
+说明：JVM 内存由 Compose 环境变量控制，不在 XML 中重复写死
 =============================================== -->
-
 <configuration>
-    <!-- HDFS默认文件系统配置 -->
+    <!-- ===============================================
+    HDFS 默认文件系统配置
+    作用：告诉 Worker 上的客户端访问哪个 NameNode
+    原理：使用容器 DNS 名称 master 和 NameNode RPC 端口 9000
+    重要性：MapReduce、Spark 和 HBase 任务均依赖此入口
+    =============================================== -->
     <property>
         <name>fs.defaultFS</name>
         <value>hdfs://master:9000</value>
-        <description>HDFS默认文件系统URI，指向master节点的NameNode</description>
+        <description>五节点集群 NameNode RPC 地址</description>
     </property>
 
-    <!-- Hadoop临时目录配置 -->
+    <!-- ===============================================
+    Hadoop 临时目录配置
+    作用：保存 Worker 节点上的本地临时文件
+    原理：作为 Hadoop 各子系统未显式设置目录时的基础路径
+    注意：每个容器拥有独立的本地目录
+    =============================================== -->
     <property>
         <name>hadoop.tmp.dir</name>
         <value>/opt/hadoop/data/tmp</value>
-        <description>Hadoop临时文件目录</description>
+        <description>Hadoop 本地临时目录</description>
     </property>
 
-    <!-- 内存优化配置 -->
+    <!-- ===============================================
+    I/O 缓冲区配置
+    作用：设置 Hadoop 文件读写的通用缓冲区大小
+    原理：在内存占用与磁盘/网络调用次数之间取得平衡
+    当前值：65536 字节，即 64 KiB
+    =============================================== -->
     <property>
-        <name>hadoop.heap.size</name>
-        <value>256</value>
-        <description>DataNode堆内存大小(256MB)</description>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.address</name>
-        <value>master:8032</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.scheduler.address</name>
-        <value>master:8030</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.resource-tracker.address</name>
-        <value>master:8031</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.admin.address</name>
-        <value>master:8033</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.webapp.address</name>
-        <value>master:8088</value>
+        <name>io.file.buffer.size</name>
+        <value>65536</value>
+        <description>I/O 缓冲区大小（64 KiB）</description>
     </property>
 </configuration>

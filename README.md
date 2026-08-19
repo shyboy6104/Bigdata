@@ -10,7 +10,7 @@
 - 已实现 Hadoop 标准模式和 Hadoop HA 模式。
 - 已实现 5 节点全栈集群及 Supervisor 多进程管理。
 - 已提供统一 CLI、组件测试脚本和 PyQt5 配置可视化工具。
-- 仓库历史记录显示完整集群曾通过 73 项测试；当前代码变更后仍应重新执行测试确认。
+- 已提供独立组件架构与五节点全栈架构，适用于单组件教学和综合实训。
 - 项目定位为教学与实验环境，不建议未经安全加固直接用于生产。
 
 ## 组件与版本
@@ -489,23 +489,26 @@ Flink 1.14 的示例 JAR 名称和参数可能因发行包不同而变化，应�
 
 ### Flume：日志采集到 Kafka
 
-独立模式的 `config/flume/flume-kafka.conf` 使用 `agent2`，监控 `/var/log/application/application.log` 并写入 Kafka 的 `flume-logs` Topic。当前 `flume-entrypoint.sh` 却以 `agent1` 启动，二者需要按 Todo 的 P0 任务统一。在修复前，完整链路实验可在容器中手工启动 `agent2`：
+独立模式的 `config/flume/flume-kafka.conf` 与 `flume-entrypoint.sh` 已统一使用 `agent1`，监控 `/var/log/application/application.log` 并写入 Kafka 的 `flume-logs` Topic。容器启动后 Agent 会自动运行；以下命令可用于课堂上的重启和链路观察：
 
 ```bash
-# 先确认 Kafka Topic
+# 先确认 Kafka Topic；不存在时再执行 create
 docker exec kafka1 kafka-topics.sh \
-  --create --if-not-exists \
+  --list \
+  --bootstrap-server kafka1:9092
+
+# Kafka 2.4 的 --bootstrap-server 模式不与 --if-not-exists 混用
+docker exec kafka1 kafka-topics.sh \
+  --create \
   --topic flume-logs \
   --partitions 3 \
   --replication-factor 3 \
   --bootstrap-server kafka1:9092
 
-# 按配置文件中的真实 Agent 名称启动采集链路
-docker exec -d flume-kafka /opt/flume/bin/flume-ng agent \
-  --conf /opt/flume/conf \
-  --conf-file /opt/flume/conf/flume-kafka.conf \
-  --name agent2 \
-  -Dflume.root.logger=INFO,console
+# 重启容器内唯一的 Agent，并确认启动参数使用 agent1
+docker restart flume-kafka
+docker exec flume-kafka bash -c \
+  "ps aux | grep '[o]rg.apache.flume.node.Application' | grep -- '--name agent1'"
 
 # 追加测试日志
 docker exec flume-kafka bash -c \
@@ -609,21 +612,21 @@ config/
 
 独立组件由各自 entrypoint 将 `config/<component>/` 复制或挂载到组件目录。五节点模式由 `scripts/all-in-one-entrypoint.sh` 根据角色从 `config/all-in-one/` 复制配置。
 
-### 配置简化审计
+### 配置设计与后续整理
 
-当前配置可以继续简化，但建议分阶段完成并在每一步后运行组件测试。
+当前运行配置以正确性和教学可读性为先。Compose 负责五节点资源预算，entrypoint 提供缺省值，组件配置文件保留关键字段的用途、原理和角色说明。目录级合并仍应分阶段进行，并在每一步后运行组件测试。
 
-| 级别 | 发现 | 建议 |
+| 类型 | 当前设计或发现 | 维护建议 |
 |---|---|---|
-| 可直接整理 | `config/all-in-one/hadoop/` 的两个文件与 `hadoop-master/` 完全相同，且启动脚本不引用该目录 | 验证无外部使用者后删除重复目录 |
-| 可直接整理 | `config/supervisor/conf.d/` 是旧版角色配置；实际运行使用 `config/all-in-one/supervisor/` | 保留 `supervisord.conf`，删除或归档旧 `conf.d` |
-| 可直接整理 | `memory-optimization.conf` 当前未被脚本加载 | 删除它，或明确改为唯一内存配置入口，不能继续作为无效副本保留 |
-| 可直接整理 | 启动脚本尝试读取不存在的 `/config/all-in-one/environment.conf` | 删除无效分支，或增加真实配置并明确挂载 |
-| 需测试后合并 | Hadoop master/worker 的公共连接参数重复，部分 YARN 地址同时出现在 `core-site.xml` 和 `yarn-site.xml` | 收敛为一套公共配置加少量角色差异 |
-| 需测试后合并 | HBase master/worker 的 `rootdir`、ZooKeeper 和端口配置重复 | 尝试共用一份 `hbase-site.xml` |
-| 需测试后修正 | 五节点 Hadoop 配置仍显式使用 `50010/50075` 等 Hadoop 2.x 端口，并存在 `hadoop.heap.size`、`dfs.permissions` 等疑似失效项 | 删除旧端口覆盖，改用 Hadoop 3.x 默认端口及正式属性名 |
-| 需统一来源 | Flink 内存同时在 Compose、entrypoint、YAML 中配置，且存在 512 MB 与 1024 MB 冲突 | 选择一个权威入口，其余仅使用环境变量替换 |
-| 需统一来源 | Spark、Hadoop、HBase、Kafka 内存也分散在多处 | Compose 负责节点预算，entrypoint 只提供默认值，组件配置不再重复写死 |
+| P1 待办 | `config/all-in-one/hadoop/` 的两个文件与角色目录重复，且启动脚本不引用该目录 | 验证无外部使用者后删除重复目录 |
+| P1 待办 | `config/supervisor/conf.d/` 是旧版角色配置；实际运行使用 `config/all-in-one/supervisor/` | 保留 `supervisord.conf`，删除或归档旧 `conf.d` |
+| 内存设计 | 不保留未被加载的 `memory-optimization.conf` | Compose 是内存预算权威入口，entrypoint 仅提供缺省值 |
+| P1 待办 | 启动脚本仍兼容读取可选的 `/config/all-in-one/environment.conf` | 决定删除兼容分支，或创建并正式挂载该文件 |
+| P1 待办 | Hadoop master/worker 仍有可合并的公共连接参数 | 设计公共配置后再收敛，保留角色差异 |
+| P1 待办 | HBase master/worker 的 `rootdir`、ZooKeeper 和端口配置重复 | 尝试共用一份 `hbase-site.xml` |
+| Hadoop 设计 | 五节点 Hadoop 使用 9866/9864、`dfs.permissions.enabled`，并提供 `mapred-site.xml` | 后续变更继续运行 MapReduce 与 Spark on YARN 测试 |
+| 计算引擎内存 | Flink 使用统一进程内存；Spark 区分守护进程、Worker、Driver 和 Executor | 保持 Compose 显式预算、entrypoint 缺省值、配置文件解释字段含义 |
+| JVM 内存 | Hadoop、HBase、Kafka、Hive 的堆内存通过环境变量统一传入 | 新增服务时将实际进程参数纳入综合测试 |
 | 建议保留 | Hadoop HA 的 QJM/ZKFC、Kafka Broker ID、Flume Source-Channel-Sink 配置 | 这些内容体现核心教学概念，不宜为了减少行数而隐藏 |
 
 详细任务和验收标准见 [Todo.md](Todo.md)。
@@ -673,6 +676,8 @@ python main.py
 
 ## 测试
 
+测试脚本的依赖、实际覆盖范围、日志约定和失败定位方式见 [test/README.md](test/README.md)，各脚本另有同名 Markdown 说明。
+
 ### 独立组件测试
 
 ```bash
@@ -696,6 +701,8 @@ bash test/cluster-test.sh
 ```
 
 综合测试覆盖容器状态、HDFS/YARN/MapReduce、ZooKeeper、HBase、Hive、Kafka、Flume-Kafka、Spark Standalone/YARN、Flink 和 MySQL。测试会创建临时目录、表、Topic 和数据库，脚本结束时会尽量清理。
+
+测试的内存检查会先输出容器内实际 Java 命令行，再校验 NameNode、DataNode、HBase、ZooKeeper、Kafka、Spark 和 Flink 的关键内存参数。Flume 测试使用本轮唯一消息；未消费到该消息时直接失败，不再以警告代替失败。
 
 ## 常用管理命令
 

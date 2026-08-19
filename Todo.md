@@ -16,6 +16,11 @@
 - [x] 完成主要 JVM/服务内存预算，目标总量约 15.5 GB。
 - [x] 提供交互式与命令行模式的 `bigdata-cli.sh`。
 - [x] 提供组件测试、HA 测试、Flume-Kafka 集成测试和五节点综合测试。
+- [x] 移除旧 Compose 文件中已废弃的顶层 `version` 字段，并通过全部 Compose 解析校验。
+- [x] 为五节点 Hadoop、Flink、Spark 配置保留并补充面向教学的中文字段说明。
+- [x] 完善 Flume 测试的分阶段中文日志和失败诊断信息。
+- [x] 统一其他组件测试的详细日志、真实退出状态和失败诊断，并补齐同名测试说明文档。
+- [x] 逐份对照测试脚本完善同名说明文档，明确测试范围、执行步骤或命令、预期结果、单项通过条件和脚本最终退出条件。
 - [x] 提供 Windows Docker Desktop/WSL2 安装说明。
 - [x] 提供 PyQt5 配置可视化工具。
 
@@ -25,28 +30,38 @@
 
 ### Hadoop 五节点配置
 
-- [ ] 移除 `config/all-in-one/hadoop-master/core-site.xml` 和 `hadoop-worker/hdfs-site.xml` 中显式配置的 Hadoop 2.x 端口 `50010/50075`。
-- [ ] 统一使用 Hadoop 3.1.3 的 DataNode 端口，并与 entrypoint 健康检查使用的 `9866/9864` 保持一致。
-- [ ] 将 `dfs.permissions` 改为正式属性 `dfs.permissions.enabled`。
-- [ ] 验证并删除疑似无效的 `hadoop.heap.size`、`hadoop.rpc.server.address` 等属性；JVM 内存统一由环境变量控制。
-- [ ] 将 YARN 属性从 `core-site.xml` 收敛到 `yarn-site.xml`，避免同一地址在两个文件重复维护。
-- [ ] 补齐五节点模式的 `mapred-site.xml`，显式声明 YARN 执行框架和 MapReduce 环境变量。
-- [ ] 验证 NameNode、DataNode、ResourceManager、NodeManager、MapReduce WordCount 和 Spark on YARN。
+- [x] 移除 `config/all-in-one/hadoop-master/core-site.xml` 和 `hadoop-worker/hdfs-site.xml` 中显式配置的 Hadoop 2.x 端口 `50010/50075`。
+- [x] 统一使用 Hadoop 3.1.3 的 DataNode 端口，并与 entrypoint 健康检查使用的 `9866/9864` 保持一致。
+- [x] 将 `dfs.permissions` 改为正式属性 `dfs.permissions.enabled`。
+- [x] 验证并删除疑似无效的 `hadoop.heap.size`、`hadoop.rpc.server.address` 等属性；JVM 内存统一由环境变量控制。
+- [x] 将 YARN 属性从 `core-site.xml` 收敛到 `yarn-site.xml`，避免同一地址在两个文件重复维护。
+- [x] 补齐五节点模式的 `mapred-site.xml`，显式声明 YARN 执行框架和 MapReduce 环境变量。
+- [x] 验证 NameNode、DataNode、ResourceManager、NodeManager、MapReduce WordCount 和 Spark on YARN。
 
 ### 内存参数统一
 
-- [ ] 确定权威规则：Compose 负责节点级预算，entrypoint 只提供缺省值，组件配置文件不重复写死同一进程内存。
-- [ ] 解决 Flink Compose/entrypoint/YAML 中 512 MB 与 1024 MB 的冲突。
-- [ ] 统一 Spark Worker、Executor 和 Driver 内存的含义，避免把 Worker 守护进程内存与 Executor 可用内存混为一谈。
-- [ ] 统一 Hadoop、HBase、Kafka、Hive 的堆内存参数来源。
-- [ ] 决定 `config/all-in-one/memory-optimization.conf` 的去留：要么作为唯一入口并由脚本加载，要么删除该无效副本。
-- [ ] 在集群测试中输出实际 JVM 启动参数，验证配置真正生效。
+- [x] 确定权威规则：Compose 负责节点级预算，entrypoint 只提供缺省值，组件配置文件不重复写死同一进程内存。
+- [x] 解决 Flink Compose/entrypoint/YAML 中 512 MB 与 1024 MB 的冲突。
+- [x] 统一 Spark Worker、Executor 和 Driver 内存的含义，避免把 Worker 守护进程内存与 Executor 可用内存混为一谈。
+- [x] 统一 Hadoop、HBase、Kafka、Hive 的堆内存参数来源。
+- [x] 删除未被加载的 `config/all-in-one/memory-optimization.conf`，避免形成无效副本。
+- [x] 在集群测试中输出实际 JVM 启动参数，验证配置真正生效。
 
 ### Flume Agent 一致性
 
-- [ ] 统一独立模式 Agent 名称：`config/flume/flume-kafka.conf` 当前定义 `agent2`，`scripts/flume-entrypoint.sh` 当前使用 `agent1`。
-- [ ] 修正 `test/test-flume.sh` 和 `test/test-flume-kafka.sh`，让“无消息”成为测试失败，而不是仅输出警告后继续通过。
-- [ ] 增加唯一测试消息校验，确认消费到的是本轮写入的数据，而非 Topic 中的历史消息。
+- [x] 统一独立模式 Agent 名称为 `agent1`。
+- [x] 修正 `test/test-flume.sh` 和 `test/test-flume-kafka.sh`，让“无消息”成为测试失败，而不是仅输出警告后继续通过。
+- [x] 增加唯一测试消息校验，确认消费到的是本轮写入的数据，而非 Topic 中的历史消息。
+
+### P0 验收记录（2026-08-19）
+
+- [x] 独立组件架构：完成 ZooKeeper、标准 Hadoop、MySQL、Kafka、Flink、HBase、Hive、Spark、Flume 及 Flume → Kafka 链路验收。
+- [x] Hadoop：HDFS 读写、2 个 DataNode、2 个 NodeManager、MapReduce WordCount 均通过。
+- [x] Kafka：3 Broker、3 分区、3 副本、ISR 和消息收发通过；Flume 唯一消息严格校验通过。
+- [x] HBase/Hive：HBase 双 RegionServer 与 CRUD 通过；Hive 建表、写入、查询、删除通过。
+- [x] Spark/Flink：Spark Standalone、Spark on YARN、Spark SQL/Streaming 和 Flink 集群注册通过。
+- [x] 五节点全栈架构：`test/cluster-test.sh` 共 83 项，83 项通过，0 失败，成功率 100%。
+- [x] 五节点最终日志：`test/test-log/cluster-test-20260819-064104.log`。
 
 ## P1：配置目录简化
 

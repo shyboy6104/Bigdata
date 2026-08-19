@@ -3,8 +3,6 @@
 # 原理：使用Docker Compose管理多容器应用，实现高可用分布式系统
 # 架构：2个NameNode + 3个JournalNode + 2个DataNode的HA架构
 
-version: '3.8'
-
 services:
   # ===============================================
   # JournalNode集群配置（3节点）

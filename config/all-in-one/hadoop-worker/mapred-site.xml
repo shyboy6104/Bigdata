@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- ===============================================
+Hadoop Worker 节点 MapReduce 配置文件
+作用：让 Worker 上的客户端和 YARN Container 使用一致的 MapReduce 运行环境
+原理：NodeManager 按此配置启动 ApplicationMaster、Map 和 Reduce Container
+节点类型：worker-1、worker-2、worker-3
+=============================================== -->
+<configuration>
+    <!-- MapReduce 作业交给 YARN 调度，而不是在提交端本地运行。 -->
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>yarn</value>
+        <description>使用 YARN 作为 MapReduce 资源调度框架</description>
+    </property>
+
+    <!-- 已结束作业的 RPC 与 Web 查询入口都位于 Master。 -->
+    <property>
+        <name>mapreduce.jobhistory.address</name>
+        <value>master:10020</value>
+        <description>JobHistoryServer RPC 服务地址</description>
+    </property>
+    <property>
+        <name>mapreduce.jobhistory.webapp.address</name>
+        <value>master:19888</value>
+        <description>JobHistoryServer Web UI 集群内部地址</description>
+    </property>
+
+    <!-- ===============================================
+    MapReduce Container 环境变量
+    作用：让 ApplicationMaster、Map 和 Reduce 进程找到 Hadoop MapReduce 组件
+    原理：YARN 启动的 Container 不应依赖交互式 Shell 的环境变量
+    =============================================== -->
+    <property>
+        <name>yarn.app.mapreduce.am.env</name>
+        <value>HADOOP_MAPRED_HOME=/opt/hadoop</value>
+        <description>ApplicationMaster 的 Hadoop MapReduce 安装目录</description>
+    </property>
+    <property>
+        <name>mapreduce.map.env</name>
+        <value>HADOOP_MAPRED_HOME=/opt/hadoop</value>
+        <description>Map Container 的 Hadoop MapReduce 安装目录</description>
+    </property>
+    <property>
+        <name>mapreduce.reduce.env</name>
+        <value>HADOOP_MAPRED_HOME=/opt/hadoop</value>
+        <description>Reduce Container 的 Hadoop MapReduce 安装目录</description>
+    </property>
+
+    <!-- ===============================================
+    MapReduce 应用类路径
+    作用：向各类 Container 暴露 Hadoop 核心 JAR 和依赖
+    原理：保证任务在任意 Worker 上都能加载相同的运行类
+    =============================================== -->
+    <property>
+        <name>mapreduce.application.classpath</name>
+        <value>/opt/hadoop/etc/hadoop,/opt/hadoop/share/hadoop/common/*,/opt/hadoop/share/hadoop/common/lib/*,/opt/hadoop/share/hadoop/hdfs/*,/opt/hadoop/share/hadoop/hdfs/lib/*,/opt/hadoop/share/hadoop/mapreduce/*,/opt/hadoop/share/hadoop/mapreduce/lib/*,/opt/hadoop/share/hadoop/yarn/*,/opt/hadoop/share/hadoop/yarn/lib/*</value>
+        <description>MapReduce ApplicationMaster 和任务 Container 的运行类路径</description>
+    </property>
+</configuration>

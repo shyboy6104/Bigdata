@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- ===============================================
+Hadoop Master 节点 MapReduce 配置文件
+作用：指定 MapReduce 使用 YARN 执行，并配置历史服务和任务运行环境
+原理：客户端向 ResourceManager 提交 ApplicationMaster，再由 YARN 启动 Map/Reduce Container
+节点类型：Master 节点；同时运行 JobHistoryServer
+=============================================== -->
+<configuration>
+    <!-- ===============================================
+    MapReduce 执行框架
+    作用：选择本地执行或 YARN 分布式执行
+    当前值：yarn，让教学作业经过 ResourceManager 和 NodeManager 调度
+    =============================================== -->
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>yarn</value>
+        <description>使用 YARN 作为 MapReduce 资源调度框架</description>
+    </property>
+
+    <!-- JobHistory RPC 地址：供客户端查询已结束作业的历史信息。 -->
+    <property>
+        <name>mapreduce.jobhistory.address</name>
+        <value>master:10020</value>
+        <description>JobHistoryServer RPC 服务地址</description>
+    </property>
+
+    <!-- JobHistory Web UI：在浏览器中查看已结束作业、任务和计数器。 -->
+    <property>
+        <name>mapreduce.jobhistory.webapp.address</name>
+        <value>master:19888</value>
+        <description>JobHistoryServer Web UI 集群内部地址</description>
+    </property>
+
+    <!-- ===============================================
+    MapReduce 运行环境
+    作用：让 ApplicationMaster、Map 和 Reduce Container 找到 Hadoop MapReduce 安装目录
+    原理：YARN Container 是独立进程，需要显式继承 HADOOP_MAPRED_HOME
+    =============================================== -->
+    <property>
+        <name>yarn.app.mapreduce.am.env</name>
+        <value>HADOOP_MAPRED_HOME=/opt/hadoop</value>
+        <description>ApplicationMaster 的 Hadoop MapReduce 安装目录</description>
+    </property>
+    <property>
+        <name>mapreduce.map.env</name>
+        <value>HADOOP_MAPRED_HOME=/opt/hadoop</value>
+        <description>Map Container 的 Hadoop MapReduce 安装目录</description>
+    </property>
+    <property>
+        <name>mapreduce.reduce.env</name>
+        <value>HADOOP_MAPRED_HOME=/opt/hadoop</value>
+        <description>Reduce Container 的 Hadoop MapReduce 安装目录</description>
+    </property>
+
+    <!-- ===============================================
+    MapReduce 应用类路径
+    作用：为 YARN Container 提供 Hadoop Common、HDFS、MapReduce、YARN 及其依赖 JAR
+    原理：未正确设置时，分布式任务可能出现 ClassNotFoundException
+    =============================================== -->
+    <property>
+        <name>mapreduce.application.classpath</name>
+        <value>/opt/hadoop/etc/hadoop,/opt/hadoop/share/hadoop/common/*,/opt/hadoop/share/hadoop/common/lib/*,/opt/hadoop/share/hadoop/hdfs/*,/opt/hadoop/share/hadoop/hdfs/lib/*,/opt/hadoop/share/hadoop/mapreduce/*,/opt/hadoop/share/hadoop/mapreduce/lib/*,/opt/hadoop/share/hadoop/yarn/*,/opt/hadoop/share/hadoop/yarn/lib/*</value>
+        <description>MapReduce ApplicationMaster 和任务 Container 的运行类路径</description>
+    </property>
+</configuration>

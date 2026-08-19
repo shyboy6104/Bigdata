@@ -1,68 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- ===============================================
+Hadoop Master 节点 YARN 配置文件
+作用：定义 ResourceManager 地址、Web UI 和聚合日志策略
+原理：ResourceManager 统一接收应用并协调各 Worker 的 NodeManager 分配资源
+节点类型：Master 节点专用配置
+说明：YARN 属性集中在本文件，不在 core-site.xml 中重复维护
+=============================================== -->
 <configuration>
-    <property>
-        <name>yarn.resourcemanager.address</name>
-        <value>master:8032</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.scheduler.address</name>
-        <value>master:8030</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.resource-tracker.address</name>
-        <value>master:8031</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.admin.address</name>
-        <value>master:8033</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.webapp.address</name>
-        <value>0.0.0.0:8088</value>
-    </property>
-
+    <!-- ===============================================
+    ResourceManager 主机名
+    作用：为 YARN 客户端和 NodeManager 提供统一的管理节点地址
+    原理：Hadoop 根据主机名推导 ResourceManager 各 RPC 服务的默认端口
+    =============================================== -->
     <property>
         <name>yarn.resourcemanager.hostname</name>
         <value>master</value>
+        <description>五节点集群 ResourceManager 所在主机</description>
     </property>
 
+    <!-- ===============================================
+    ResourceManager Web UI
+    作用：展示节点、队列、应用和资源使用情况
+    原理：监听全部容器接口，再由 Compose 映射到宿主机端口
+    =============================================== -->
     <property>
-        <name>yarn.nodemanager.aux-services</name>
-        <value>mapreduce_shuffle</value>
+        <name>yarn.resourcemanager.webapp.address</name>
+        <value>0.0.0.0:8088</value>
+        <description>ResourceManager Web UI 容器内监听地址</description>
     </property>
 
-    <property>
-        <name>yarn.nodemanager.aux-services.mapreduce_shuffle.class</name>
-        <value>org.apache.hadoop.mapred.ShuffleHandler</value>
-    </property>
-
-    <property>
-        <name>yarn.nodemanager.resource.memory-mb</name>
-        <value>2048</value>
-    </property>
-
-    <property>
-        <name>yarn.nodemanager.resource.cpu-vcores</name>
-        <value>2</value>
-    </property>
-
-    <property>
-        <name>yarn.nodemanager.vmem-check-enabled</name>
-        <value>false</value>
-    </property>
-
-    <property>
-        <name>yarn.nodemanager.pmem-check-enabled</name>
-        <value>false</value>
-    </property>
-
+    <!-- ===============================================
+    YARN 日志聚合
+    作用：应用结束后集中保存各 Container 的运行日志
+    原理：便于通过 yarn logs 命令查看分散在 Worker 上的日志
+    =============================================== -->
     <property>
         <name>yarn.log-aggregation-enable</name>
         <value>true</value>
+        <description>启用 YARN 应用日志聚合</description>
     </property>
 </configuration>

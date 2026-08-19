@@ -1,63 +1,86 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- ===============================================
+Hadoop Worker 节点 YARN 配置文件
+作用：定义 NodeManager 如何连接 ResourceManager、提供 Shuffle 并声明资源容量
+原理：每个 Worker 的 NodeManager 向 Master 注册，在本机启动和监控 Container
+节点类型：worker-1、worker-2、worker-3
+说明：资源容量用于教学调度，不等同于 NodeManager JVM 堆内存
+=============================================== -->
 <configuration>
+    <!-- ===============================================
+    ResourceManager 主机名
+    作用：指定 NodeManager 注册和心跳的目标节点
+    原理：通过 Docker DNS 名称 master 访问 ResourceManager
+    =============================================== -->
     <property>
-        <name>yarn.resourcemanager.address</name>
-        <value>master:8032</value>
+        <name>yarn.resourcemanager.hostname</name>
+        <value>master</value>
+        <description>五节点集群 ResourceManager 所在主机</description>
     </property>
 
-    <property>
-        <name>yarn.resourcemanager.scheduler.address</name>
-        <value>master:8030</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.resource-tracker.address</name>
-        <value>master:8031</value>
-    </property>
-
-    <property>
-        <name>yarn.resourcemanager.admin.address</name>
-        <value>master:8033</value>
-    </property>
-
+    <!-- ResourceManager Web UI 地址，供 Worker 上的客户端生成正确链接。 -->
     <property>
         <name>yarn.resourcemanager.webapp.address</name>
         <value>master:8088</value>
+        <description>ResourceManager Web UI 的集群内部地址</description>
     </property>
 
+    <!-- ===============================================
+    MapReduce Shuffle 辅助服务
+    作用：允许 Reduce 任务从各 Worker 拉取 Map 任务输出
+    原理：NodeManager 常驻 ShuffleHandler，任务结束后中间结果仍可被读取
+    =============================================== -->
     <property>
         <name>yarn.nodemanager.aux-services</name>
         <value>mapreduce_shuffle</value>
     </property>
-
     <property>
         <name>yarn.nodemanager.aux-services.mapreduce_shuffle.class</name>
         <value>org.apache.hadoop.mapred.ShuffleHandler</value>
     </property>
 
+    <!-- ===============================================
+    NodeManager 可调度内存
+    作用：声明该 Worker 可分配给 YARN Container 的总内存
+    原理：ResourceManager 依据此值进行任务资源调度
+    注意：2048 MB 是 Container 资源池，不是 NodeManager 自身堆内存
+    =============================================== -->
     <property>
         <name>yarn.nodemanager.resource.memory-mb</name>
         <value>2048</value>
+        <description>单个 Worker 可供 YARN 调度的总内存（MB）</description>
     </property>
 
+    <!-- NodeManager 可调度虚拟 CPU 数，用于演示基于 vCore 的资源分配。 -->
     <property>
         <name>yarn.nodemanager.resource.cpu-vcores</name>
         <value>2</value>
+        <description>单个 Worker 可供 YARN 调度的虚拟 CPU 数</description>
     </property>
 
+    <!-- ===============================================
+    虚拟内存检查
+    作用：决定 Container 超过虚拟内存限制时是否被终止
+    教学取值：false，避免容器环境的内存计算差异干扰基础实验
+    =============================================== -->
     <property>
         <name>yarn.nodemanager.vmem-check-enabled</name>
         <value>false</value>
+        <description>教学环境关闭 Container 虚拟内存强制检查</description>
     </property>
 
+    <!-- 物理内存检查同样关闭，实际总量仍由 Docker/Compose 节点预算约束。 -->
     <property>
         <name>yarn.nodemanager.pmem-check-enabled</name>
         <value>false</value>
+        <description>教学环境关闭 Container 物理内存强制检查</description>
     </property>
 
+    <!-- YARN 日志聚合便于从 Master 统一查询 Worker 上的任务日志。 -->
     <property>
         <name>yarn.log-aggregation-enable</name>
         <value>true</value>
+        <description>启用 YARN 应用日志聚合</description>
     </property>
 </configuration>
