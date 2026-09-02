@@ -68,6 +68,13 @@ ENV SPARK_CONF_DIR=$SPARK_HOME/conf
 ENV FLINK_CONF_DIR=$FLINK_HOME/conf
 ENV FLUME_CONF_DIR=$FLUME_HOME/conf
 
+# PySpark 解释器配置
+# 五节点架构中的 Driver 位于 master，Executor 位于 worker-1/2/3，
+# 因此统一镜像必须在所有节点安装相同的 Python，并使用 Spark 自带的 PySpark。
+ENV PYSPARK_PYTHON=/usr/bin/python3
+ENV PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+ENV PYTHONPATH=$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9-src.zip
+
 # ===============================================
 # Supervisor安装与配置
 # 作用：安装进程管理工具，支持单容器多进程管理
@@ -75,9 +82,15 @@ ENV FLUME_CONF_DIR=$FLUME_HOME/conf
 # 重要性：5节点架构中单个节点需要运行多个服务
 # ===============================================
 
-RUN apt-get update && apt-get install -y supervisor && \
+# 基础镜像默认使用国内镜像；构建环境不可达时切回Ubuntu官方源。
+RUN sed -i 's/mirrors.aliyun.com/archive.ubuntu.com/g' /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
+    apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    supervisor \
+    python3 && \
     mkdir -p /var/log/supervisor && \
-    mkdir -p /etc/supervisor/conf.d
+    mkdir -p /etc/supervisor/conf.d && \
+    rm -rf /var/lib/apt/lists/*
 
 # 复制Supervisor基础配置文件
 COPY config/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
@@ -139,7 +152,8 @@ RUN tar -xzf /tmp/apache-flume-${FLUME_VERSION}-bin.tar.gz -C /opt && \
 # 安装Spark
 RUN tar -xzf /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz -C /opt && \
     mv /opt/spark-${SPARK_VERSION}-bin-hadoop3.2 $SPARK_HOME && \
-    rm /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz
+    rm /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz && \
+    python3 -c "import pyspark; print('PySpark ' + pyspark.__version__)"
 
 # 安装Flink
 RUN tar -xf /tmp/flink-${FLINK_VERSION}-bin-scala_2.12.tar -C /opt && \
@@ -177,7 +191,8 @@ RUN chmod 755 /opt/hive/warehouse && \
 # ===============================================
 
 # 安装MySQL服务器
-RUN apt-get update && apt-get install -y mysql-server && \
+RUN apt-get -o Acquire::Retries=5 update && \
+    apt-get -o Acquire::Retries=5 install -y mysql-server && \
     mkdir -p /var/lib/mysql /var/log/mysql /var/run/mysqld && \
     chown -R mysql:mysql /var/lib/mysql /var/log/mysql /var/run/mysqld
 

@@ -39,7 +39,7 @@ bash test/cluster-test.sh
 
 ### 6. 计算引擎
 
-- Spark：Master、三个 Worker、Standalone SparkPi、Spark on YARN SparkPi。
+- Spark：Master、三个Worker、Python/PySpark运行时、Scala SparkPi以及PySpark RDD/DataFrame作业；Scala与PySpark都分别验证Standalone和YARN模式。
 - Flink：JobManager、TaskManager 注册和 WordCount 作业。
 
 ### 7. 基础数据库
@@ -57,7 +57,7 @@ bash test/cluster-test.sh
 | 容器/进程 | 五个容器和必要 Supervisor 服务运行 |
 | 存储/协调 | HDFS、ZooKeeper、HBase 读写成功 |
 | SQL/消息 | Hive、MySQL、Kafka、Flume 链路成功 |
-| 计算 | MapReduce、Spark 两种模式、Flink 作业成功 |
+| 计算 | MapReduce、Scala Spark、PySpark和Flink作业成功 |
 | 汇总 | 失败数为 0 |
 
 `run_test` 会为每个测试项记录名称、实际命令、命令输出和退出码：命令退出码为 `0` 时该项通过，否则该项失败。全部测试结束后，只有 `FAILED_TESTS=0` 时脚本返回退出码 `0`；即使成功率超过 80%，只要存在一个失败项，整体仍返回退出码 `1`。
@@ -76,7 +76,9 @@ bash test/cluster-test.sh
 | Kafka | 三 Broker 端口、Topic create/describe、Producer/Consumer/delete | 三端口可达，Topic 操作成功，消费输出匹配生产消息 |
 | Flume | Agent 进程/配置检查、临时 Agent、唯一消息消费 | Agent 与配置存在，Flume 发送的唯一消息能从 Kafka 找到 |
 | 完整数据管道 | 创建 Topic、启动管道 Agent、写入唯一数据、Kafka 消费 | 端到端消息匹配且 Topic 可访问 |
-| Spark | Master 端口/Web、Worker 数量、Standalone/YARN SparkPi | 至少 3 个 Worker，两种 SparkPi 均输出 `Pi is roughly` |
+| Spark运行时 | Master与三个Worker执行`python3 --version`，Master执行`import pyspark` | 四个节点均有Python 3，PySpark版本与Spark版本一致 |
+| Scala Spark | Standalone/YARN SparkPi | 至少3个Worker，两种模式均输出`Pi is roughly` |
+| PySpark | Standalone/YARN提交`pyspark-smoke.py` | 两种模式均输出`PYSPARK_SMOKE_OK square_sum=55 adult_count=2` |
 | Flink | JobManager 端口/Dashboard、TaskManager 数量、WordCount | 至少 1 个 TaskManager，作业命令成功 |
 | MySQL | 端口、连接、`hive_metastore`、测试表 CRUD | 数据库存在，插入值可查询，测试表清理成功 |
 

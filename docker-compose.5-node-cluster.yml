@@ -106,6 +106,10 @@ services:
       - SPARK_DAEMON_MEMORY=512m
       - SPARK_DRIVER_MEMORY=512m
       - SPARK_EXECUTOR_MEMORY=512m
+      # PySpark Driver 使用的 Python 解释器与模块路径
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
       - JOBMANAGER_MEMORY_PROCESS_SIZE=512m
 
   # ===============================================
@@ -140,6 +144,10 @@ services:
       - KAFKA_HEAP_OPTS=-Xmx512m -Xms512m
       - SPARK_DAEMON_MEMORY=512m
       - SPARK_WORKER_MEMORY=512m
+      # PySpark Executor 在 Worker 节点启动 Python Worker 进程
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
       - TASKMANAGER_MEMORY_PROCESS_SIZE=512m
       # ZooKeeper节点ID
       - ZOO_MY_ID=1
@@ -176,6 +184,10 @@ services:
       - KAFKA_HEAP_OPTS=-Xmx512m -Xms512m
       - SPARK_DAEMON_MEMORY=512m
       - SPARK_WORKER_MEMORY=512m
+      # PySpark Executor 在 Worker 节点启动 Python Worker 进程
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
       - TASKMANAGER_MEMORY_PROCESS_SIZE=512m
       # ZooKeeper节点ID
       - ZOO_MY_ID=2
@@ -212,6 +224,10 @@ services:
       - KAFKA_HEAP_OPTS=-Xmx512m -Xms512m
       - SPARK_DAEMON_MEMORY=512m
       - SPARK_WORKER_MEMORY=512m
+      # PySpark Executor 在 Worker 节点启动 Python Worker 进程
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
       - TASKMANAGER_MEMORY_PROCESS_SIZE=512m
       # ZooKeeper节点ID
       - ZOO_MY_ID=3

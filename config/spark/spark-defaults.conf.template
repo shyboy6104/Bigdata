@@ -1,5 +1,12 @@
 spark.master                     spark://spark-master:7077
 spark.app.name                   Spark Application
+
+# PySpark的Driver和Executor统一使用Python 3。
+spark.pyspark.driver.python      /usr/bin/python3
+spark.pyspark.python             /usr/bin/python3
+spark.executorEnv.PYSPARK_PYTHON /usr/bin/python3
+spark.yarn.appMasterEnv.PYSPARK_PYTHON /usr/bin/python3
+
 spark.driver.memory              1g
 spark.executor.memory            1g
 spark.executor.cores             2

@@ -434,7 +434,9 @@ kafka-consumer-groups.sh --describe --group test-group --bootstrap-server kafka1
 kafka-topics.sh --delete --topic test-topic --bootstrap-server kafka1:9092
 ```
 
-### Spark：Standalone、YARN 与 Spark SQL
+### Spark：Scala、PySpark、Standalone、YARN与Spark SQL
+
+PySpark 的完整课堂操作流程见 [PySpark教学操作手册.md](PySpark教学操作手册.md)，其中包含镜像构建、独立组件与五节点集群启动、RDD/DataFrame/SQL 实验、Standalone/YARN 提交、自动化测试和故障判定。
 
 ```bash
 docker exec -it spark-master bash
@@ -468,6 +470,24 @@ val data = Seq((1, "Alice", 25), (2, "Bob", 30)).toDF("id", "name", "age")
 data.createOrReplaceTempView("people")
 spark.sql("SELECT name, age FROM people WHERE age >= 30").show()
 ```
+
+Spark容器同时提供Python 3和Spark自带的PySpark。进入独立Spark Master后可以启动PySpark Shell，或者直接提交Python文件：
+
+```bash
+docker exec -it spark-master bash
+
+# 交互式PySpark Shell
+pyspark --master spark://spark-master:7077
+
+# 提交项目自带的PySpark冒烟作业
+exit
+docker cp test/pyspark-smoke.py spark-master:/tmp/pyspark-smoke.py
+docker exec spark-master spark-submit \
+  --master spark://spark-master:7077 \
+  /tmp/pyspark-smoke.py
+```
+
+作业输出`PYSPARK_SMOKE_OK square_sum=55 adult_count=2`表示Python Driver、Worker端Python进程、RDD和DataFrame计算均正常。完整自动测试使用`bash test/test-spark.sh`。
 
 ### Flink：作业提交与管理
 

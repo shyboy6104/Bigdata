@@ -6,6 +6,10 @@ services:
     environment:
       - ROLE=master
       - HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+      # PySpark Driver 与 Executor 统一使用 Python 3。
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
     volumes:
       - ./config/spark:/config/spark
       - ./config/hadoop:/config/hadoop
@@ -26,6 +30,10 @@ services:
     environment:
       - ROLE=worker
       - HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+      # Worker 会启动 Python Worker 进程，解释器必须与 Driver 一致。
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
     volumes:
       - ./config/spark:/config/spark
       - ./config/hadoop:/config/hadoop
@@ -46,6 +54,10 @@ services:
     environment:
       - ROLE=worker
       - HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+      # Worker 会启动 Python Worker 进程，解释器必须与 Driver 一致。
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
     volumes:
       - ./config/spark:/config/spark
       - ./config/hadoop:/config/hadoop

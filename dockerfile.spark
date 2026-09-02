@@ -5,13 +5,26 @@ ENV SPARK_VERSION=3.1.1
 ENV SPARK_HOME=/opt/spark
 ENV PATH=$SPARK_HOME/bin:$SPARK_HOME/sbin:$PATH
 
-RUN apt-get update && apt-get install -y python3 python3-pip && \
+# PySpark 运行环境
+# Spark 安装包已经自带 pyspark 与 py4j，这里只安装 Python 解释器，
+# 并统一 Driver 与 Executor 使用 /usr/bin/python3，避免各节点解释器不一致。
+ENV PYSPARK_PYTHON=/usr/bin/python3
+ENV PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+ENV PYTHONPATH=$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9-src.zip
+
+# 基础镜像默认使用国内镜像；构建环境不可达时切回Ubuntu官方源。
+# PySpark使用Spark自带模块，不需要额外执行pip install pyspark。
+RUN sed -i 's/mirrors.aliyun.com/archive.ubuntu.com/g' /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
+    apt-get -o Acquire::Retries=5 install -y --no-install-recommends python3 && \
+    python3 --version && \
     rm -rf /var/lib/apt/lists/*
 
 COPY module/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz /tmp/
 RUN tar -xzf /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz && \
     mv spark-${SPARK_VERSION}-bin-hadoop3.2 ${SPARK_HOME} && \
-    rm /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz
+    rm /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz && \
+    python3 -c "import pyspark; print('PySpark ' + pyspark.__version__)"
 
 RUN mkdir -p ${SPARK_HOME}/logs
 # 复制配置文件和脚本
@@ -24,4 +37,3 @@ WORKDIR ${SPARK_HOME}
 EXPOSE 7077 8080 8081 4040 18080
 
 ENTRYPOINT ["/scripts/spark-entrypoint.sh"]
-

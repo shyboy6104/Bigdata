@@ -25,6 +25,9 @@ source /etc/profile
 # 设置默认环境变量
 export SPARK_HOME=${SPARK_HOME:-/opt/spark}
 export HADOOP_CONF_DIR=${HADOOP_CONF_DIR:-/opt/spark/conf}
+export PYSPARK_DRIVER_PYTHON=${PYSPARK_DRIVER_PYTHON:-/usr/bin/python3}
+export PYSPARK_PYTHON=${PYSPARK_PYTHON:-/usr/bin/python3}
+export PYTHONPATH="$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9-src.zip:${PYTHONPATH:-}"
 
 # ===============================================
 # 环境配置加载
@@ -114,6 +117,13 @@ fi
 
 # 确保HADOOP_CONF_DIR在classpath中
 export SPARK_DIST_CLASSPATH=$HADOOP_CONF_DIR
+
+# 启动前检查Scala/Spark与Python/PySpark运行时，避免容器启动后才发现解释器缺失。
+echo "Checking Spark language runtimes..."
+echo "PySpark Driver Python: $PYSPARK_DRIVER_PYTHON"
+echo "PySpark Executor Python: $PYSPARK_PYTHON"
+"$PYSPARK_DRIVER_PYTHON" --version
+"$PYSPARK_DRIVER_PYTHON" -c "import pyspark; print('PySpark ' + pyspark.__version__)"
 
 # 等待HDFS服务就绪（通过测试HDFS端口连通性）
 echo "Waiting for HDFS services to be ready..."

@@ -556,6 +556,16 @@ EOF
 test_spark() {
     section "Spark 测试"
 
+    local SPARK_VERSION
+    SPARK_VERSION=$(docker exec master bash -c 'ls /opt/spark/examples/jars/spark-examples_*.jar 2>/dev/null | head -1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1')
+    log_info "  Spark版本: ${SPARK_VERSION:-无法识别}"
+
+    run_test "Spark Python 3 运行环境 (master及3个worker)" \
+        "for container in master worker-1 worker-2 worker-3; do docker exec \"\$container\" /usr/bin/python3 --version 2>&1 | grep -q 'Python 3' || exit 1; done"
+
+    run_test "Spark PySpark模块与Spark版本一致" \
+        "test -n '$SPARK_VERSION' && docker exec master bash -c 'python3 -c \"import pyspark; print(pyspark.__version__)\"' | grep -qx '$SPARK_VERSION'"
+
     run_test "Spark Master 端口可达" \
         "docker exec master bash -c 'echo > /dev/tcp/localhost/8080'"
 
@@ -564,9 +574,6 @@ test_spark() {
 
     run_test "Spark Worker 数量 (>=3)" \
         "docker exec master bash -c 'curl -s http://localhost:8080/json/ 2>/dev/null | grep -o \"aliveworkers\\\"[[:space:]]*:[[:space:]]*[0-9]*\"' | grep -oE '[0-9]+' | grep -qE '[3-9]'"
-
-    local SPARK_VERSION=$(docker exec master bash -c 'ls /opt/spark/examples/jars/spark-examples_*.jar 2>/dev/null | head -1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1')
-    log_info "  Spark版本: $SPARK_VERSION"
 
     if [ -n "$SPARK_VERSION" ]; then
         local EXAMPLE_JAR="/opt/spark/examples/jars/spark-examples_2.12-${SPARK_VERSION}.jar"
@@ -580,6 +587,20 @@ test_spark() {
         log_skip "Spark Pi作业 (无法获取Spark版本)"
         SKIPPED_TESTS=$((SKIPPED_TESTS + 2))
     fi
+
+    run_test "复制PySpark冒烟测试脚本" \
+        "docker cp test/pyspark-smoke.py master:/tmp/pyspark-smoke.py"
+
+    run_test "PySpark Standalone RDD与DataFrame计算" \
+        "docker exec master bash -c 'timeout 180 /opt/spark/bin/spark-submit --master spark://master:7077 /tmp/pyspark-smoke.py > /tmp/pyspark-standalone-test.log 2>&1; status=\$?; cat /tmp/pyspark-standalone-test.log; [ \$status -eq 0 ] && grep -q \"PYSPARK_SMOKE_OK square_sum=55 adult_count=2\" /tmp/pyspark-standalone-test.log'"
+
+    run_test "PySpark on YARN RDD与DataFrame计算" \
+        "docker exec master bash -c 'export HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop; timeout 180 /opt/spark/bin/spark-submit --master yarn --deploy-mode client /tmp/pyspark-smoke.py > /tmp/pyspark-yarn-test.log 2>&1; status=\$?; cat /tmp/pyspark-yarn-test.log; [ \$status -eq 0 ] && grep -q \"PYSPARK_SMOKE_OK square_sum=55 adult_count=2\" /tmp/pyspark-yarn-test.log'"
+
+    docker exec master rm -f \
+        /tmp/pyspark-smoke.py \
+        /tmp/pyspark-standalone-test.log \
+        /tmp/pyspark-yarn-test.log >/dev/null 2>&1 || true
 }
 
 # ===============================================

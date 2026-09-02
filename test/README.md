@@ -56,6 +56,6 @@ echo $?
 | `test-hbase.sh` | [HBase](test-hbase.md) |
 | `test-hive.sh` | [Hive](test-hive.md) |
 | `test-mysql.sh` | [MySQL](test-mysql.md) |
-| `test-spark.sh` | [Spark](test-spark.md) |
+| `test-spark.sh` | [Spark Scala与PySpark](test-spark.md) |
 | `test-flink.sh` | [Flink](test-flink.md) |
 | `cluster-test.sh` | [五节点综合测试](cluster-test.md) |
