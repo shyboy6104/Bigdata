@@ -451,7 +451,9 @@ quit()
 
 ## 8. 使用 spark-submit 提交 PySpark 文件
 
-交互式 Shell 适合逐行讲解，`spark-submit` 更接近实际作业运行方式。本项目提供了 `test/pyspark-smoke.py`，其中包含 RDD、DataFrame 和 Executor Python Worker 检查。
+交互式 Shell 适合逐行讲解，`spark-submit` 更接近实际作业运行方式。本项目提供了 `test/pyspark-smoke.py`，其中包含 RDD、DataFrame 和 Executor Python Worker 检查；`DEMO` 目录还提供了适合课堂阅读的本地版、Docker 版和 HDFS 读写版示例。
+
+直接执行 `python Python文件.py` 时，PySpark 内部仍会启动 Java Gateway 和 Spark 提交程序。显式使用 `spark-submit` 的主要优势是可以在命令行统一指定 Master、部署模式、Driver 参数、Executor 参数和第三方依赖，因此更适合正式作业和课堂演示“提交端—Driver—Executor”的关系。
 
 ### 8.1 把程序复制到 Master
 
@@ -500,6 +502,169 @@ PYSPARK_SMOKE_OK square_sum=55 adult_count=2
 - 命令退出码为 0。
 
 如果只看到版本信息而没有最终成功标记，不能判定为通过，应继续查看输出末尾的 Python 或 Executor 异常。
+
+### 8.3 从 Windows 本地使用 spark-submit
+
+本地示例使用以下执行结构：
+
+```text
+Windows spark-submit
+        |
+        v
+Windows Python Driver
+        |
+        +----> Docker spark-worker1 Executor
+        |
+        +----> Docker spark-worker2 Executor
+```
+
+本地环境必须与 Docker Spark 集群保持版本兼容。本项目验证使用的本地环境为 Python 3.8.20、PySpark 3.1.1，集群为 Spark 3.1.1。先激活环境并进入项目目录：
+
+```powershell
+conda activate pyspark_proj
+Set-Location E:\Programs\Bigdata
+```
+
+conda 安装的 PySpark 包中已经包含 `spark-submit.cmd`、Spark JAR 和相关启动脚本，但当前环境可能没有自动设置 `SPARK_HOME`。在当前 PowerShell 会话中设置：
+
+```powershell
+$env:SPARK_HOME = "$env:CONDA_PREFIX\Lib\site-packages\pyspark"
+$env:PYSPARK_DRIVER_PYTHON = "$env:CONDA_PREFIX\python.exe"
+```
+
+两个变量的作用如下：
+
+| 变量 | 本地值 | 作用 |
+|---|---|---|
+| `SPARK_HOME` | conda 环境中的 `site-packages\pyspark` | 让 `spark-submit.cmd` 找到 `bin` 和 `jars` |
+| `PYSPARK_DRIVER_PYTHON` | conda 环境中的 `python.exe` | 确保 Windows Driver 使用当前环境的 Python |
+
+这些设置只影响当前 PowerShell 窗口，关闭窗口后不会永久修改系统环境变量。检查提交程序：
+
+```powershell
+spark-submit.cmd --version
+```
+
+预期显示：
+
+```text
+version 3.1.1
+Using Scala version 2.12.10
+```
+
+提交普通 DataFrame 示例：
+
+```powershell
+spark-submit.cmd `
+  --master spark://127.0.0.1:7077 `
+  --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/DEMO/log4j-local.properties" `
+  DEMO\pyspark-example-local.py
+```
+
+参数说明：
+
+| 参数 | 作用 |
+|---|---|
+| `--master spark://127.0.0.1:7077` | 通过 Docker 暴露到 Windows 的 7077 端口连接 Spark Master |
+| `--driver-java-options` | 在 Driver JVM 启动前加载教学用 Log4j 配置 |
+| 最后的 `.py` 路径 | 指定要提交的 Python 主程序 |
+
+`--driver-java-options` 必须由 `spark-submit` 在 JVM 启动前传入。它不能可靠地由已经运行起来的 Driver 临时补加。这里的日志配置会隐藏当前示例不需要的 Windows `winutils.exe` 警告，但不会安装 `winutils.exe`；如果需要在 Windows 本地运行 Hadoop 文件工具，仍应配置完整的 Hadoop Windows 环境。
+
+提交 HDFS 读写示例：
+
+```powershell
+spark-submit.cmd `
+  --master spark://127.0.0.1:7077 `
+  --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/DEMO/log4j-local.properties" `
+  DEMO\pyspark-hdfs-example-local.py
+```
+
+该程序执行以下步骤：
+
+1. 在 Windows Driver 中创建订单 DataFrame。
+2. 通过 NameNode RPC 端口将数据以 Parquet 格式写入 HDFS。
+3. 从 HDFS 重新读取 Parquet 文件，而不是继续使用原内存变量。
+4. 在 Spark Executor 中按商品类别汇总金额。
+
+HDFS 保存目录为：
+
+```text
+/examples/pyspark-hdfs/orders
+```
+
+本地 HDFS 示例会自动取得 Windows 主机的局域网 IPv4 地址，并使用类似 `hdfs://10.x.x.x:8020` 的 URI。`docker-compose.hadoop.yml` 必须包含 `8020:8020` 端口映射，使 Windows Driver 和 Docker Executor 都能访问 NameNode。
+
+### 8.4 在 Docker 中使用 spark-submit
+
+Docker 方式的 Driver 位于 `spark-master` 容器中，Master、Worker 和 NameNode 均通过 Docker DNS 名称访问，不依赖可能在容器重建后变化的 `172.18.x.x` 地址。
+
+先确认 Docker Desktop 和相关容器正在运行：
+
+```powershell
+docker version
+docker compose -f docker-compose.hadoop.yml ps
+docker compose -f docker-compose.spark.yml ps
+```
+
+提交普通 DataFrame 示例：
+
+```powershell
+docker cp DEMO\pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
+
+docker exec spark-master `
+  /opt/spark/bin/spark-submit `
+  --master spark://spark-master:7077 `
+  /tmp/pyspark-example.py
+```
+
+提交 HDFS 读写示例：
+
+```powershell
+docker cp DEMO\pyspark-hdfs-example-docker.py spark-master:/tmp/pyspark-hdfs-example.py
+
+docker exec spark-master `
+  /opt/spark/bin/spark-submit `
+  --master spark://spark-master:7077 `
+  /tmp/pyspark-hdfs-example.py
+```
+
+Docker 版使用以下地址：
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| Spark Master | `spark://spark-master:7077` | `spark-master` 是 Docker 服务名 |
+| HDFS NameNode | `hdfs://namenode:8020` | `namenode` 是 Docker 服务名 |
+| Python | `/usr/bin/python3` | Driver 和 Executor 使用一致的容器内解释器 |
+
+虽然 NameNode 当前可能显示为 `172.18.0.3`，示例仍应优先使用 `namenode`。容器重建可能改变 IP，Docker DNS 服务名则保持稳定。
+
+### 8.5 DEMO 示例的预期结果
+
+普通版和 HDFS 版最终都应得到：
+
+```text
++--------+------------+
+|category|total_amount|
++--------+------------+
+|    book|         200|
+|    food|         120|
++--------+------------+
+```
+
+HDFS 示例还应输出写入路径。可以进一步检查实际文件：
+
+```powershell
+docker exec namenode hdfs dfs -ls /examples/pyspark-hdfs/orders
+docker exec namenode hdfs fsck /examples/pyspark-hdfs/orders -files -blocks -locations
+```
+
+应看到 `_SUCCESS` 和两个 `part-*.snappy.parquet` 文件。当前教学集群有两个 DataNode，示例把 `dfs.replication` 设置为 `2`；通过条件为：
+
+- `Status: HEALTHY`。
+- `Missing blocks: 0`。
+- `Corrupt blocks: 0`。
+- 两个数据块都具有两个有效副本。
 
 ## 9. 测试 PySpark 读取 HDFS
 
