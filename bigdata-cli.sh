@@ -4,6 +4,10 @@
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || {
+    echo "[ERROR] Failed to enter project directory: $SCRIPT_DIR" >&2
+    exit 1
+}
 
 # Color definitions
 RED='\033[0;31m'
@@ -27,6 +31,8 @@ SINGLE_COMPOSE_FILES=(
     "docker-compose.mysql.yml"
 )
 MULTI_COMPOSE_FILE="docker-compose.5-node-cluster.yml"
+SHARED_NETWORK_NAME="bigdata-net"
+COMPOSE_CMD=()
 
 # Function definitions
 print_info() {
@@ -51,10 +57,43 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
+    if docker compose version &> /dev/null; then
+        COMPOSE_CMD=(docker compose)
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD=(docker-compose)
+    else
         print_error "Docker Compose not installed or not in PATH"
         exit 1
     fi
+}
+
+# Ensure that independent component Compose projects can join the same network.
+# This operation is idempotent: an existing network is retained unchanged.
+ensure_shared_network() {
+    local architecture=$1
+
+    if [ "$architecture" != "single" ]; then
+        return 0
+    fi
+
+    print_info "检查独立组件公共网络：$SHARED_NETWORK_NAME"
+
+    if docker network inspect "$SHARED_NETWORK_NAME" >/dev/null 2>&1; then
+        print_success "公共网络已存在：$SHARED_NETWORK_NAME"
+        return 0
+    fi
+
+    print_info "公共网络不存在，正在创建：$SHARED_NETWORK_NAME"
+    local network_output
+    if network_output=$(docker network create "$SHARED_NETWORK_NAME" 2>&1); then
+        print_success "公共网络创建成功：$SHARED_NETWORK_NAME"
+        print_info "Docker返回的网络标识：$network_output"
+        return 0
+    fi
+
+    print_error "公共网络创建失败：$SHARED_NETWORK_NAME"
+    print_error "Docker返回信息：$network_output"
+    return 1
 }
 
 get_compose_file() {
@@ -154,6 +193,11 @@ build_image() {
         print_error "Dockerfile not found: $dockerfile"
         return 1
     fi
+
+    if ! ensure_shared_network "$architecture"; then
+        print_error "Image build cancelled because the shared network is unavailable"
+        return 1
+    fi
     
     print_info "Building image: $image_name"
     
@@ -198,10 +242,15 @@ start_containers() {
         print_error "Docker Compose file not found: $compose_file"
         return 1
     fi
+
+    if ! ensure_shared_network "$architecture"; then
+        print_error "Container startup cancelled because the shared network is unavailable"
+        return 1
+    fi
     
     print_info "Starting $architecture architecture $component containers"
     
-    if docker-compose -f "$compose_file" up -d; then
+    if "${COMPOSE_CMD[@]}" -f "$compose_file" up -d; then
         print_success "Containers started successfully"
         return 0
     else
@@ -226,7 +275,7 @@ stop_containers() {
     
     print_info "Stopping $architecture architecture $component containers"
     
-    if docker-compose -f "$compose_file" stop; then
+    if "${COMPOSE_CMD[@]}" -f "$compose_file" stop; then
         print_success "Containers stopped successfully"
     else
         print_warning "Container stop failed or containers not running"
@@ -249,7 +298,7 @@ destroy_containers() {
     
     print_info "Destroying $architecture architecture $component containers"
     
-    if docker-compose -f "$compose_file" down; then
+    if "${COMPOSE_CMD[@]}" -f "$compose_file" down; then
         print_success "Containers destroyed successfully"
     else
         print_warning "Container destruction failed"
@@ -280,24 +329,62 @@ clean_containers() {
         return 1
     fi
     
-    print_info "Cleaning $architecture architecture $component containers, networks and volumes"
+    print_info "Cleaning $architecture architecture $component containers and associated volumes"
     
-    # 停止并删除容器、网络和关联的卷
-    if docker-compose -f "$compose_file" down -v --remove-orphans; then
-        print_success "Containers, networks and volumes cleaned successfully"
-        
-        # 额外清理：删除未使用的卷（可选，更彻底）
-        print_info "Cleaning unused volumes..."
-        local unused_volumes=$(docker volume ls -qf dangling=true)
-        if [ -n "$unused_volumes" ]; then
-            echo "$unused_volumes" | xargs -r docker volume rm
-            print_success "Unused volumes cleaned"
-        else
-            print_info "No unused volumes found"
-        fi
+    # 这里只清理所选 Compose 中声明的资源，不删除其他组件，也不清理系统级悬空卷。
+    if "${COMPOSE_CMD[@]}" -f "$compose_file" down -v; then
+        print_success "Component containers and associated volumes cleaned successfully"
     else
         print_warning "Cleanup failed"
+        return 1
     fi
+}
+
+# 清理本项目的全部部署资源。
+# 交互菜单中的“清理容器、网络和卷”是全局动作，因此不再要求选择架构或组件。
+# 镜像、宿主机 bind mount 数据目录，以及其他 Docker 项目的资源不会被删除。
+clean_all_project_resources() {
+    local compose_file
+    local cleanup_failed=false
+    local compose_files=("${SINGLE_COMPOSE_FILES[@]}" "$MULTI_COMPOSE_FILE")
+
+    print_info "开始清理本项目的全部容器、Compose 网络和关联卷"
+
+    for compose_file in "${compose_files[@]}"; do
+        if [ ! -f "$compose_file" ]; then
+            print_warning "跳过不存在的 Compose 文件：$compose_file"
+            continue
+        fi
+
+        print_info "正在清理：$compose_file"
+        if "${COMPOSE_CMD[@]}" -f "$compose_file" down -v; then
+            print_success "已完成：$compose_file"
+        else
+            print_error "清理失败：$compose_file"
+            cleanup_failed=true
+        fi
+    done
+
+    # 独立组件使用外部网络，Compose down 不会主动删除它；全项目清理时单独处理。
+    if docker network inspect "$SHARED_NETWORK_NAME" >/dev/null 2>&1; then
+        print_info "正在删除独立组件公共网络：$SHARED_NETWORK_NAME"
+        if docker network rm "$SHARED_NETWORK_NAME" >/dev/null; then
+            print_success "公共网络已删除：$SHARED_NETWORK_NAME"
+        else
+            print_error "公共网络删除失败：$SHARED_NETWORK_NAME"
+            print_error "可能仍有本项目以外的容器连接到该网络，请执行 docker network inspect $SHARED_NETWORK_NAME 检查"
+            cleanup_failed=true
+        fi
+    else
+        print_info "公共网络不存在，无需删除：$SHARED_NETWORK_NAME"
+    fi
+
+    if [ "$cleanup_failed" = "true" ]; then
+        print_error "全项目清理未完全成功，请根据上方失败环节继续排查"
+        return 1
+    fi
+
+    print_success "本项目全部容器、网络和关联卷清理完成"
 }
 
 clean_all_volumes() {
@@ -328,7 +415,7 @@ show_status() {
     fi
     
     echo -e "${BLUE}=== $architecture architecture $component container status ===${NC}"
-    docker-compose -f "$compose_file" ps
+    "${COMPOSE_CMD[@]}" -f "$compose_file" ps
 }
 
 show_logs() {
@@ -349,9 +436,9 @@ show_logs() {
     echo -e "${BLUE}=== $architecture architecture $component container logs ===${NC}"
     
     if [ "$follow" = "true" ]; then
-        docker-compose -f "$compose_file" logs -f
+        "${COMPOSE_CMD[@]}" -f "$compose_file" logs -f
     else
-        docker-compose -f "$compose_file" logs
+        "${COMPOSE_CMD[@]}" -f "$compose_file" logs
     fi
 }
 
@@ -379,7 +466,7 @@ show_supervisor_status() {
     echo ""
     
     # 获取多架构集群中的所有容器
-    local containers=$(docker-compose -f "$compose_file" ps -q)
+    local containers=$("${COMPOSE_CMD[@]}" -f "$compose_file" ps -q)
     
     if [ -z "$containers" ]; then
         print_warning "No containers found for the cluster"
@@ -431,7 +518,7 @@ test_component() {
     print_info "Testing component: $component ($architecture architecture)"
     
     # 检查容器状态
-    if docker-compose -f "$compose_file" ps | grep -q "Up"; then
+    if "${COMPOSE_CMD[@]}" -f "$compose_file" ps | grep -q "Up"; then
         print_success "Component is running"
     else
         print_error "Component is not running"
@@ -478,7 +565,7 @@ test_component() {
             print_info "Performing basic connectivity test..."
             
             # 基本连接性测试：检查容器是否在运行
-            local running_containers=$(docker-compose -f "$compose_file" ps --services --filter "status=running" 2>/dev/null)
+            local running_containers=$("${COMPOSE_CMD[@]}" -f "$compose_file" ps --services --filter "status=running" 2>/dev/null)
             if [ -n "$running_containers" ]; then
                 print_success "Component containers are running: $running_containers"
             else
@@ -550,7 +637,7 @@ show_help() {
     echo "  $0 -a multi start all        # Start full-stack cluster"
     echo "  $0 status zookeeper          # Check ZooKeeper status"
     echo "  $0 logs kafka -f             # Follow Kafka logs in real-time"
-    echo "  $0 supervisor all            # Check supervisor status for full cluster"
+    echo "  $0 -a multi supervisor all   # Check supervisor status for full cluster"
 }
 
 # Interactive menu functions
@@ -618,7 +705,7 @@ show_container_management_menu() {
     echo "2. Stop Container"
     echo "3. Destroy Container"
     echo "4. Restart Container"
-    echo "5. Clean Containers, Networks and Volumes"
+    echo "5. Clean ALL Project Containers, Networks and Volumes"
     echo "6. Clean All Unused Volumes (System-wide)"
     echo "0. Back to Main Menu"
     echo ""
@@ -651,7 +738,12 @@ get_component_by_index() {
 interactive_mode() {
     while true; do
         show_main_menu
-        read choice
+        if ! read -r choice; then
+            echo ""
+            print_info "Input closed, exiting interactive mode"
+            return 0
+        fi
+        choice="${choice%$'\r'}"
         
         case $choice in
             1) # Image Management
@@ -687,7 +779,12 @@ interactive_mode() {
 interactive_image_management() {
     while true; do
         show_image_management_menu
-        read choice
+        if ! read -r choice; then
+            echo ""
+            print_info "Input closed, returning to previous menu"
+            return
+        fi
+        choice="${choice%$'\r'}"
         
         case $choice in
             1) # Build Image
@@ -713,7 +810,12 @@ interactive_image_management() {
 interactive_container_management() {
     while true; do
         show_container_management_menu
-        read choice
+        if ! read -r choice; then
+            echo ""
+            print_info "Input closed, returning to previous menu"
+            return
+        fi
+        choice="${choice%$'\r'}"
         
         case $choice in
             1) # Start Containers
@@ -736,14 +838,27 @@ interactive_container_management() {
                     destroy_containers "$selected_component" "$selected_architecture"
                 fi
                 ;;
-            5) # Clean Containers
-                if select_component_and_architecture; then
-                    clean_containers "$selected_component" "$selected_architecture"
+            5) # Clean all project containers, networks and volumes
+                print_warning "该操作将删除本项目全部架构和组件的容器、Compose 网络及关联卷。"
+                print_warning "Docker 镜像和宿主机目录映射中的数据不会被删除。确认继续？(y/N): "
+                if ! read -r confirm; then
+                    print_info "输入已关闭，全项目清理已取消"
+                    return
+                fi
+                confirm="${confirm%$'\r'}"
+                if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+                    clean_all_project_resources
+                else
+                    print_info "全项目清理已取消"
                 fi
                 ;;
             6) # Clean All Volumes
                 print_warning "This will clean ALL unused volumes in the system. Are you sure? (y/N): "
-                read confirm
+                if ! read -r confirm; then
+                    print_info "Input closed, volume cleanup cancelled"
+                    return
+                fi
+                confirm="${confirm%$'\r'}"
                 if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
                     clean_all_volumes
                 else
@@ -760,14 +875,19 @@ interactive_container_management() {
         
         echo ""
         echo "Press Enter to continue..."
-        read
+        read -r || return
     done
 }
 
 interactive_status_management() {
     while true; do
         show_status_menu
-        read choice
+        if ! read -r choice; then
+            echo ""
+            print_info "Input closed, returning to previous menu"
+            return
+        fi
+        choice="${choice%$'\r'}"
         
         case $choice in
             1) # View Status
@@ -800,7 +920,7 @@ interactive_status_management() {
         
         echo ""
         echo "Press Enter to continue..."
-        read
+        read -r || return
     done
 }
 
@@ -814,7 +934,12 @@ select_component_and_architecture() {
     # 先选择架构
     while true; do
         show_architecture_menu
-        read arch_choice
+        if ! read -r arch_choice; then
+            echo ""
+            print_info "Input closed, cancelling selection"
+            return 1
+        fi
+        arch_choice="${arch_choice%$'\r'}"
         
         case $arch_choice in
             1)
@@ -837,7 +962,12 @@ select_component_and_architecture() {
     # 根据架构选择组件
     while true; do
         show_component_menu "$selected_architecture"
-        read component_choice
+        if ! read -r component_choice; then
+            echo ""
+            print_info "Input closed, cancelling selection"
+            return 1
+        fi
+        component_choice="${component_choice%$'\r'}"
         
         if [ "$component_choice" = "0" ]; then
             # 返回架构选择

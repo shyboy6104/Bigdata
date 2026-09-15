@@ -1,6 +1,9 @@
 # Auto detect text files and normalize line endings to LF
 * text=auto eol=lf
 
+# Windows batch scripts must use CRLF so cmd.exe can parse IF/FOR blocks correctly.
+*.bat text eol=crlf
+
 # Explicitly declare shell scripts
 *.sh text eol=lf
 

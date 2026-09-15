@@ -5,7 +5,9 @@ services:
     hostname: spark-master
     environment:
       - ROLE=master
-      - HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+      # 默认由挂载的 config/environment.conf 决定模式；
+      # 只有宿主机显式设置 HADOOP_ENVIRONMENT 时才作为临时覆盖值传入。
+      - HADOOP_ENVIRONMENT_OVERRIDE=${HADOOP_ENVIRONMENT:-}
       # PySpark Driver 与 Executor 统一使用 Python 3。
       - PYSPARK_PYTHON=/usr/bin/python3
       - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
@@ -29,7 +31,8 @@ services:
     hostname: spark-worker1
     environment:
       - ROLE=worker
-      - HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+      # 未设置宿主机变量时保持为空，让共享环境配置文件生效。
+      - HADOOP_ENVIRONMENT_OVERRIDE=${HADOOP_ENVIRONMENT:-}
       # Worker 会启动 Python Worker 进程，解释器必须与 Driver 一致。
       - PYSPARK_PYTHON=/usr/bin/python3
       - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
@@ -53,7 +56,8 @@ services:
     hostname: spark-worker2
     environment:
       - ROLE=worker
-      - HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-ha}
+      # 未设置宿主机变量时保持为空，让共享环境配置文件生效。
+      - HADOOP_ENVIRONMENT_OVERRIDE=${HADOOP_ENVIRONMENT:-}
       # Worker 会启动 Python Worker 进程，解释器必须与 Driver 一致。
       - PYSPARK_PYTHON=/usr/bin/python3
       - PYSPARK_DRIVER_PYTHON=/usr/bin/python3

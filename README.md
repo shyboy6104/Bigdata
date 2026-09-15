@@ -88,7 +88,9 @@ bash test/test-hadoop.sh
 
 ### 1. 创建公共网络
 
-除五节点 Compose 自带网络外，独立组件 Compose 使用预先创建的外部网络：
+除五节点 Compose 自带网络外，独立组件 Compose 使用公共外部网络 `bigdata-net`。通过 `bigdata-cli.sh` 或 `bigdata-cli.bat` 构建、启动独立组件时，CLI 会自动检查并创建该网络。
+
+只有绕过 CLI、直接使用 Compose 时，才需要先手工创建：
 
 ```bash
 bash scripts/network.sh
@@ -155,7 +157,7 @@ ZooKeeper → Hadoop 或 Hadoop HA → MySQL
 ZooKeeper → Kafka → Flume
 ```
 
-HBase、Hive 基于 `bigdata-hadoop:latest` 构建，构建它们之前需先构建 Hadoop 镜像。Spark 默认挂载 Hadoop HA 配置；若使用标准 Hadoop，请设置相应的 `HADOOP_ENVIRONMENT` 并核对 `docker-compose.spark.yml`。
+HBase、Hive 基于 `bigdata-hadoop:latest` 构建，构建它们之前需先构建 Hadoop 镜像。Spark 默认读取 `config/environment.conf` 中的 `HADOOP_ENVIRONMENT`；宿主机显式设置同名变量时才临时覆盖共享配置。
 
 CLI 完整用法见 [CLI_USAGE.md](CLI_USAGE.md)。也可以直接使用 Compose：
 
@@ -461,7 +463,7 @@ spark-submit \
   "$SPARK_EXAMPLE_JAR" 100
 ```
 
-Spark 默认读取 Hadoop HA 配置。如果课程使用标准 Hadoop，应将 Spark Compose 中的 `HADOOP_ENVIRONMENT` 设置为 `standard` 后重新启动。
+Spark 根据 `config/environment.conf` 中的 `HADOOP_ENVIRONMENT` 选择标准或 HA Hadoop 配置。修改后必须重新创建 Spark 容器；仅停止后启动旧容器不会更新容器环境与启动阶段生成的配置。需要临时覆盖时，可以在宿主机显式设置同名环境变量。
 
 Spark SQL 可以在 `spark-shell` 中演示：
 

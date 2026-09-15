@@ -36,8 +36,9 @@ export PYTHONPATH="$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9-src.zip
 # 配置内容：可能包含版本信息、集群参数等自定义配置
 # ===============================================
 
-# Docker Compose 显式传入的部署模式优先于共享环境文件中的默认值。
-REQUESTED_HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT:-}
+# Compose 只把宿主机显式设置的值放入覆盖变量。
+# 若该值为空，后续加载的 /config/environment.conf 才是默认配置源。
+REQUESTED_HADOOP_ENVIRONMENT=${HADOOP_ENVIRONMENT_OVERRIDE:-}
 
 # 加载环境配置
 if [ -f /config/environment.conf ]; then
@@ -51,8 +52,17 @@ fi
 # 默认值：ha（高可用环境），支持standard（标准环境）
 # ===============================================
 
-# 设置默认Hadoop环境
-export HADOOP_ENVIRONMENT=${REQUESTED_HADOOP_ENVIRONMENT:-${HADOOP_ENVIRONMENT:-ha}}
+# 设置Hadoop环境并记录值的来源，便于从容器日志判断配置是否真正生效。
+if [ -n "$REQUESTED_HADOOP_ENVIRONMENT" ]; then
+    export HADOOP_ENVIRONMENT="$REQUESTED_HADOOP_ENVIRONMENT"
+    echo "Hadoop environment source: explicit host/Compose override"
+elif [ -n "${HADOOP_ENVIRONMENT:-}" ]; then
+    export HADOOP_ENVIRONMENT
+    echo "Hadoop environment source: /config/environment.conf"
+else
+    export HADOOP_ENVIRONMENT="ha"
+    echo "Hadoop environment source: built-in fallback (ha)"
+fi
 
 # ===============================================
 # 配置目录准备

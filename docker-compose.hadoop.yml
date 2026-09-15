@@ -28,6 +28,7 @@ services:
     hostname: namenode
     command: ["namenode"]
     ports:
+      - "8020:8020"   # HDFS NameNode RPC，供宿主机 PySpark 访问
       - "19870:9870"
       - "18088:8088"
       - "19888:19888"

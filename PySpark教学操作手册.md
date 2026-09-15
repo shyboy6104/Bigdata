@@ -250,12 +250,17 @@ docker exec namenode yarn node -list
 
 ### 4.3 启动 Spark Master 与 Worker
 
-`docker-compose.spark.yml` 默认连接 Hadoop HA。当前使用标准 Hadoop，因此必须先设置环境变量。
+`docker-compose.spark.yml` 默认读取 `config/environment.conf`。当前使用标准 Hadoop时，应先确认其中包含：
+
+```text
+HADOOP_ENVIRONMENT=standard
+```
+
+确认后直接启动 Spark：
 
 PowerShell：
 
 ```powershell
-$env:HADOOP_ENVIRONMENT = 'standard'
 docker compose -f docker-compose.spark.yml up -d
 docker compose -f docker-compose.spark.yml ps
 ```
@@ -263,9 +268,17 @@ docker compose -f docker-compose.spark.yml ps
 Git Bash 或 Linux Shell：
 
 ```bash
-HADOOP_ENVIRONMENT=standard docker compose -f docker-compose.spark.yml up -d
+docker compose -f docker-compose.spark.yml up -d
 docker compose -f docker-compose.spark.yml ps
 ```
+
+如果已有 Spark 容器是按其他模式创建的，应使用以下命令重新创建，而不是只执行 `restart`：
+
+```powershell
+docker compose -f docker-compose.spark.yml up -d --force-recreate
+```
+
+需要在单次启动中临时覆盖共享配置时，仍可先设置宿主机的 `HADOOP_ENVIRONMENT`；显式宿主机变量的优先级高于 `config/environment.conf`。
 
 应看到以下容器处于 `Up` 或 `running` 状态：
 
@@ -714,7 +727,7 @@ bash test/cluster-test.sh
 | `Failed to connect to master` | Master 未启动、地址错误或网络不通 | 检查 `docker compose ... ps`、`docker logs spark-master` 和 `spark://spark-master:7077` |
 | Master 页面没有 Worker | Worker 尚未注册或反复退出 | 查看两个 Worker 日志，检查三个容器是否都连接 `bigdata-net` |
 | 作业一直等待资源 | Worker 没有可用 Core/Memory | 查看 Master 页面中的 Worker 资源和正在运行的 Application |
-| HDFS 路径不存在 | Hadoop 未启动或 Spark 读取了错误配置 | 检查 `HADOOP_ENVIRONMENT=standard`，再执行 `docker exec namenode hdfs dfs -ls /` |
+| HDFS 路径不存在 | Hadoop 未启动或 Spark 读取了错误配置 | 检查 `config/environment.conf` 中是否为 `HADOOP_ENVIRONMENT=standard`，重新创建 Spark 容器，再执行 `docker exec namenode hdfs dfs -ls /` |
 | History Server 报 event log 错误 | HDFS 日志目录未初始化或 HDFS 尚未就绪 | 先确认 HDFS 可用，再查看 `docker logs spark-master` |
 | Standalone 成功但 YARN 失败 | YARN、HDFS 或 NodeManager 端运行时异常 | 执行 `yarn node -list`，并查看 ResourceManager/NodeManager 日志 |
 | 只出现 Python 版本，没有成功标记 | Driver 启动成功，但计算过程或 Executor 失败 | 查看 `spark-submit` 输出末尾及 Worker 日志，不能只根据版本信息判定通过 |
