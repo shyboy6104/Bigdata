@@ -518,7 +518,196 @@ Windows Python Driver
         +----> Docker spark-worker2 Executor
 ```
 
-本地环境必须与 Docker Spark 集群保持版本兼容。本项目验证使用的本地环境为 Python 3.8.20、PySpark 3.1.1，集群为 Spark 3.1.1。先激活环境并进入项目目录：
+本地环境必须与 Docker Spark 集群保持版本兼容。本项目验证使用的本地环境为 Python 3.8.20、PySpark 3.1.1，集群为 Spark 3.1.1。第一次使用时，依次完成下面的 Conda 安装、PowerShell 初始化和环境创建；以后再次使用只需要激活已有环境。
+
+#### 8.3.1 简单安装 Conda
+
+推荐学生安装 Miniconda。它只包含 Conda、Python 和基本工具，比完整的 Anaconda Distribution 更小，需要的教学库由后续命令按需安装。
+
+1. 打开 [Miniconda Windows 图形安装说明](https://www.anaconda.com/docs/getting-started/miniconda/install/windows-gui-install)。
+2. 下载 Windows 64 位图形安装器并双击运行。
+3. 安装类型选择 `Just Me`；没有特殊要求时保留默认安装目录和其他默认选项。
+4. 安装完成后，从 Windows 开始菜单打开 **Miniconda Prompt**。
+5. 执行下面的命令检查安装：
+
+```text
+conda --version
+```
+
+预期输出类似：
+
+```text
+conda 24.9.2
+```
+
+具体版本可能比示例更新，只要能够正常显示版本号即可。已经安装 Miniconda 或 Anaconda Distribution 的计算机不需要重复安装。
+
+#### 8.3.2 在 PowerShell 中初始化 Conda
+
+刚安装完成时，普通 PowerShell 可能提示“无法将 `conda` 识别为 cmdlet、函数、脚本文件或可运行程序”。这是因为 PowerShell 尚未加载 Conda 的 Shell 初始化代码，并不表示 Conda 环境已经损坏。
+
+先在 **Miniconda Prompt** 或 **Anaconda Prompt** 中执行一次：
+
+```text
+conda init powershell
+```
+
+该命令会把 Conda 初始化代码写入当前用户的 PowerShell 配置文件。执行完成后必须关闭所有 PowerShell 窗口，再重新打开 PowerShell。然后检查：
+
+```powershell
+conda --version
+conda env list
+```
+
+如果在普通 PowerShell 中找不到 `conda`，也可以使用 `conda.exe` 的完整路径完成初始化。Miniconda 默认安装位置的命令通常为：
+
+```powershell
+& "$env:USERPROFILE\miniconda3\Scripts\conda.exe" init powershell
+```
+
+本项目当前教学计算机的 Conda 安装在 `E:\Programs\anaconda`，因此对应命令是：
+
+```powershell
+& "E:\Programs\anaconda\Scripts\conda.exe" init powershell
+```
+
+如果只想让 Conda 在当前 PowerShell 窗口临时生效，不修改 PowerShell 配置文件，可以加载 Hook：
+
+```powershell
+& "E:\Programs\anaconda\shell\condabin\conda-hook.ps1"
+conda --version
+```
+
+这种临时设置在关闭窗口后失效。日常教学环境建议执行一次 `conda init powershell`，避免每次手工加载 Hook。
+
+#### 8.3.3 创建 pyspark_proj 环境并安装依赖
+
+初始化完成并重新打开 PowerShell 后，创建独立环境：
+
+```powershell
+conda create --name pyspark_proj python=3.8.20 pip -y
+conda activate pyspark_proj
+conda install --channel conda-forge "openjdk=8" -y
+python -m pip install pyspark==3.1.1
+```
+
+各命令的作用如下：
+
+| 命令或参数 | 作用 |
+|---|---|
+| `conda create` | 创建一个与其他 Python 项目相互隔离的新环境 |
+| `--name pyspark_proj` | 把环境命名为 `pyspark_proj`，后续通过该名称激活 |
+| `python=3.8.20` | 安装与本项目验证环境一致的 Python 版本 |
+| `pip` | 在新环境中安装 Python 包管理工具 |
+| `-y` | 自动确认 Conda 的安装提示 |
+| `conda activate pyspark_proj` | 让当前 PowerShell 使用该环境中的 Python 和命令 |
+| `conda install --channel conda-forge "openjdk=8"` | 从 conda-forge 把 OpenJDK 8 安装到当前环境，不修改其他 Conda 环境中的 Java |
+| `python -m pip install pyspark==3.1.1` | 安装与 Docker Spark 3.1.1 集群匹配的 PySpark；所需的 Py4J 会作为依赖自动安装 |
+
+如果 `conda env list` 已经显示 `pyspark_proj`，不要重复创建，直接激活并安装或检查依赖：
+
+```powershell
+conda activate pyspark_proj
+conda install --channel conda-forge "openjdk=8" -y
+python -m pip install pyspark==3.1.1
+```
+
+验证版本和命令路径：
+
+```powershell
+python --version
+python -c "import pyspark, py4j; print('PySpark', pyspark.__version__); print('Py4J', py4j.__version__)"
+where.exe python
+where.exe spark-submit.cmd
+where.exe java
+where.exe javac
+java -version
+javac -version
+```
+
+预期看到的关键信息为：
+
+```text
+Python 3.8.20
+PySpark 3.1.1
+Py4J 0.10.9
+...\pyspark_proj\python.exe
+...\pyspark_proj\Scripts\spark-submit.cmd
+...\pyspark_proj\...\java.exe
+...\pyspark_proj\...\javac.exe
+openjdk version "1.8..."
+javac 1.8...
+```
+
+`where.exe java` 和 `where.exe javac` 可能显示不止一个结果。Windows 会优先使用第一项；采用 Conda 方案时，第一项应位于当前 `pyspark_proj` 环境中，而不是其他软件附带的旧 JRE。
+
+#### 8.3.4 Windows 本地为什么需要 JDK
+
+PySpark 代码使用 Python 编写，但 Spark 的 Driver、Spark SQL 和调度器实际运行在 JVM 中。因此，只要 Driver 位于 Windows，Windows 就必须能执行 Java：
+
+| 运行方式 | Windows 是否需要 Java |
+|---|---|
+| Windows 执行 `python DEMO\pyspark-example-local.py` | 需要，Java Gateway 和 Driver JVM 在 Windows 启动 |
+| Windows 执行 `spark-submit.cmd ...` | 需要，提交脚本会在 Windows 启动 Driver JVM |
+| Windows 执行 `docker exec spark-master spark-submit ...` | 不需要，Driver 和 Java 都在 `spark-master` 容器内运行 |
+
+严格来说，运行现有 PySpark 程序只需要 Java 运行时；`javac` 编译器不会参与本手册的 Python 示例。不过，为了得到完整、容易检查的教学环境，建议安装 JDK，而不是只安装 JRE。
+
+[Spark 3.1.1 官方说明](https://archive.apache.org/dist/spark/docs/3.1.1/)支持 Java 8 和 Java 11。本项目统一使用 Java 8，以便和已有 Docker 镜像及课堂验证环境保持一致。
+
+下面两种安装方式只需选择一种。
+
+**方式一：在 Conda 环境内安装 OpenJDK 8（教学环境推荐）**
+
+```powershell
+conda activate pyspark_proj
+conda install --channel conda-forge "openjdk=8" -y
+where.exe java
+where.exe javac
+java -version
+javac -version
+```
+
+这种方式的特点是：
+
+- JDK 随 `pyspark_proj` 环境管理，不需要管理员权限修改系统 Java。
+- 激活环境后，环境内的 `java` 和 `javac` 会进入命令搜索路径。
+- 退出环境后，其他项目仍可使用自己的 Java 版本。
+- 删除该 Conda 环境时，其中的 JDK 也会一同删除。
+
+如果 `where.exe java` 的第一项不在 `pyspark_proj` 中，应检查是否已经执行 `conda activate pyspark_proj`。还可以直接确认环境内文件：
+
+```powershell
+Get-Command java | Select-Object Source
+Get-Command javac | Select-Object Source
+conda list openjdk
+```
+
+**方式二：在 Windows 中全局安装 JDK 8**
+
+需要让多个非 Conda 项目共用 Java 时，可以安装 Windows 版 JDK。以 Eclipse Temurin 为例：
+
+1. 打开 [Eclipse Temurin Windows 安装说明](https://adoptium.net/zh-CN/installation/windows)。
+2. 下载 Windows x64、JDK 8 的 MSI 安装包。
+3. 在安装器的自定义选项中启用“添加到 `PATH`”和“设置 `JAVA_HOME`”。
+4. 安装完成后关闭并重新打开 PowerShell。
+5. 执行下面的命令检查：
+
+```powershell
+java -version
+javac -version
+where.exe java
+where.exe javac
+$env:JAVA_HOME
+```
+
+采用全局 JDK 时，不需要再向 `pyspark_proj` 安装 `openjdk`。如果系统同时存在多个 Java，应确保 `where.exe java` 的第一项和 `JAVA_HOME` 指向同一个 JDK 8 安装目录，避免 `java` 与 `javac` 来自不同版本。
+
+当前教学计算机虽然已经能运行 `java 1.8.0_491`，但检查不到 `javac`，说明当前命令路径中只有 Java 运行时而没有完整 JDK。可以按照方式一把 OpenJDK 8 安装到 `pyspark_proj`，不必先卸载现有 Java 运行时。
+
+#### 8.3.5 激活环境并配置 spark-submit
+
+以后每次新开 PowerShell，只需激活环境并进入项目目录：
 
 ```powershell
 conda activate pyspark_proj
@@ -891,11 +1080,146 @@ bash test/cluster-test.sh
 | `Cannot run program /usr/bin/python3` | Executor 容器缺少 Python 或解释器路径不一致 | 分别在 Master、每个 Worker 中执行 `python3 --version` |
 | `Failed to connect to master` | Master 未启动、地址错误或网络不通 | 检查 `docker compose ... ps`、`docker logs spark-master` 和 `spark://spark-master:7077` |
 | Master 页面没有 Worker | Worker 尚未注册或反复退出 | 查看两个 Worker 日志，检查三个容器是否都连接 `bigdata-net` |
-| 作业一直等待资源 | Worker 没有可用 Core/Memory | 查看 Master 页面中的 Worker 资源和正在运行的 Application |
+| 作业一直等待资源，并反复出现 `Initial job has not accepted any resources` | Worker 虽然已经注册，但没有足够的空闲 Core/Memory；常见原因是先前启动的 `PySparkShell` 仍占用全部核心 | 按 12.1 节检查并释放旧应用，再为教学作业设置资源上限 |
 | HDFS 路径不存在 | Hadoop 未启动或 Spark 读取了错误配置 | 检查 `config/environment.conf` 中是否为 `HADOOP_ENVIRONMENT=standard`，重新创建 Spark 容器，再执行 `docker exec namenode hdfs dfs -ls /` |
 | History Server 报 event log 错误 | HDFS 日志目录未初始化或 HDFS 尚未就绪 | 先确认 HDFS 可用，再查看 `docker logs spark-master` |
 | Standalone 成功但 YARN 失败 | YARN、HDFS 或 NodeManager 端运行时异常 | 执行 `yarn node -list`，并查看 ResourceManager/NodeManager 日志 |
 | 只出现 Python 版本，没有成功标记 | Driver 启动成功，但计算过程或 Executor 失败 | 查看 `spark-submit` 输出末尾及 Worker 日志，不能只根据版本信息判定通过 |
+
+### 12.1 异常情况处理提醒：作业一直等待可用资源
+
+执行下面的提交命令后：
+
+```powershell
+docker exec spark-master spark-submit --master spark://spark-master:7077 /tmp/pyspark-smoke.py
+```
+
+如果终端每隔一段时间重复显示：
+
+```text
+WARN TaskSchedulerImpl: Initial job has not accepted any resources;
+check your cluster UI to ensure that workers are registered and have sufficient resources
+```
+
+这通常不表示 Python 程序进入了死循环，也不表示 Driver 无法连接 Master。它表示：
+
+1. Driver 已经连接到 Spark Master，并且作业已经提交。
+2. 作业目前没有获得可运行任务的 Executor 资源。
+3. Spark Standalone 默认不会从正在运行的应用中抢占资源，因此新作业会继续等待。
+
+课堂中最常见的原因是：之前启动的 `pyspark` 交互式 Shell 没有退出。若没有限制资源，`PySparkShell` 可能取得集群全部 CPU 核心，随后提交的作业只能处于 `WAITING` 状态。
+
+#### 第一步：查看 Worker 和应用状态
+
+打开 Spark Master 页面：
+
+```text
+http://localhost:8080
+```
+
+重点检查：
+
+- `Workers` 区域是否存在 `ALIVE` 状态的 Worker。
+- Worker 的 `Cores` 是否已经全部处于 `Used` 状态。
+- `Running Applications` 中是否存在仍在运行的 `PySparkShell`。
+- 新提交的应用是否处于 `WAITING` 状态且获得的 Core 数为 `0`。
+
+也可以在命令行检查容器和进程：
+
+```powershell
+docker ps --filter "name=spark-"
+docker exec spark-master jps -lv
+docker logs spark-master --tail 100
+docker logs spark-worker1 --tail 100
+docker logs spark-worker2 --tail 100
+```
+
+如果 Master 页面完全没有 Worker，应先排查 Worker 注册或网络问题；如果 Worker 为 `ALIVE`，但可用 Core 为 `0`，则应先释放旧应用占用的资源。
+
+#### 第二步：退出不再使用的 PySpark Shell
+
+回到原来的 PySpark Shell 终端，执行：
+
+```python
+quit()
+```
+
+也可以使用：
+
+```python
+exit()
+```
+
+退出后，旧 `PySparkShell` 占用的 Executor 会被回收。已经在等待的 `spark-submit` 作业通常会自动获得资源并继续执行，不需要重复提交。
+
+如果原来的交互终端已经丢失，先查找 `PySparkShell` 对应的进程：
+
+```powershell
+docker exec spark-master sh -c "ps -eo pid,ppid,args | grep 'PySparkShell' | grep -v grep"
+```
+
+确认进程确实属于不再使用的旧 Shell 后，再向显示出的 PID 发送正常终止信号。例如，假设查到的 PID 为 `343`：
+
+```powershell
+docker exec spark-master kill -TERM 343
+```
+
+这里的 `343` 只是示例，必须替换为实际查询到的 PID。不要终止当前正在等待的 `pyspark-smoke.py` 进程，也不要仅凭示例 PID 执行命令。
+
+#### 第三步：为教学应用设置资源上限
+
+本项目的独立 Spark 集群共有两个 Worker，每个 Worker 有 2 个 Core。为了让 PySpark Shell 和其他教学作业可以同时运行，建议单个应用最多使用 2 个 Core：
+
+```powershell
+docker exec spark-master `
+  spark-submit `
+  --master spark://spark-master:7077 `
+  --conf spark.cores.max=2 `
+  --conf spark.executor.cores=1 `
+  --conf spark.executor.memory=512m `
+  /tmp/pyspark-smoke.py
+```
+
+各部分的作用如下：
+
+| 参数或命令 | 作用 |
+|---|---|
+| `docker exec spark-master` | 在已经运行的 `spark-master` 容器中执行后面的命令；Driver 因此也运行在该容器中 |
+| `spark-submit` | 启动 Spark Driver，并把 Python 应用提交给指定的集群管理器 |
+| `--master spark://spark-master:7077` | 使用 Spark Standalone 模式，连接 Docker 网络中名称为 `spark-master`、端口为 `7077` 的 Master |
+| `--conf spark.cores.max=2` | 限制这个应用在整个 Standalone 集群中最多占用 2 个 CPU Core，防止一个教学应用独占全部 4 个 Core |
+| `--conf spark.executor.cores=1` | 每个 Executor 使用 1 个 CPU Core；结合 `spark.cores.max=2`，该应用最多可以同时使用两个单核 Executor |
+| `--conf spark.executor.memory=512m` | 为每个 Executor 分配 512 MiB JVM 堆内存；该值适合本手册中的小型教学数据，实际大数据任务应按数据量调整 |
+| `/tmp/pyspark-smoke.py` | Spark 要执行的 Python 主程序在 `spark-master` 容器中的路径 |
+
+三个资源参数之间需要配合使用：
+
+```text
+应用最大核心数 spark.cores.max = 2
+每个 Executor 核心数 spark.executor.cores = 1
+理论上最多并行启动的 Executor 数 = 2 / 1 = 2
+每个 Executor 内存 spark.executor.memory = 512 MiB
+```
+
+`spark.cores.max` 是应用级总上限，`spark.executor.cores` 是单个 Executor 的核心数，二者不是同一个概念。这里只限制 Executor 资源，不包括 Driver JVM 自身使用的内存。
+
+已经运行的应用不能通过再次执行 `spark-submit` 临时修改这些限制。必须先正常退出旧 Shell，然后使用带资源参数的新命令重新启动。以后启动 PySpark Shell 时也建议设置相同限制：
+
+```powershell
+docker exec -it spark-master `
+  pyspark `
+  --master spark://spark-master:7077 `
+  --conf spark.cores.max=2 `
+  --conf spark.executor.cores=1 `
+  --conf spark.executor.memory=512m
+```
+
+处理完成后，重新查看 Master 页面。满足以下条件说明资源调度已经恢复：
+
+- `PySparkSmokeTest` 从 `WAITING` 变为 `RUNNING`。
+- 应用获得的 Core 数不再是 `0`。
+- 终端不再重复显示 `Initial job has not accepted any resources`。
+- 示例最终输出 `PYSPARK_SMOKE_OK square_sum=55 adult_count=2`。
 
 查看 Spark 应用相关日志：
 
