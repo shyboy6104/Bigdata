@@ -32,6 +32,8 @@ SINGLE_COMPOSE_FILES=(
 )
 MULTI_COMPOSE_FILE="docker-compose.5-node-cluster.yml"
 SHARED_NETWORK_NAME="bigdata-net"
+BASE_IMAGE_NAME="bigdata-base:latest"
+BASE_DOCKERFILE="dockerfile.base"
 COMPOSE_CMD=()
 
 # Function definitions
@@ -179,6 +181,49 @@ validate_architecture() {
 }
 
 # Image management commands
+build_base_image() {
+    if [ ! -f "$BASE_DOCKERFILE" ]; then
+        print_error "基础镜像 Dockerfile 不存在：$BASE_DOCKERFILE"
+        return 1
+    fi
+
+    print_info "正在构建基础镜像：$BASE_IMAGE_NAME"
+    print_info "Dockerfile：$BASE_DOCKERFILE"
+
+    if docker build -t "$BASE_IMAGE_NAME" -f "$BASE_DOCKERFILE" .; then
+        print_success "基础镜像构建成功：$BASE_IMAGE_NAME"
+        return 0
+    fi
+
+    print_error "基础镜像构建失败：$BASE_IMAGE_NAME"
+    return 1
+}
+
+# 读取目标 Dockerfile 的直接父镜像。只有直接继承 bigdata-base:latest 的
+# 组件才在这里检查基础镜像；例如 MySQL 使用官方镜像，HBase/Hive 则直接
+# 继承 bigdata-hadoop:latest，应由各自的上游依赖检查与文档负责说明。
+check_base_image_dependency() {
+    local dockerfile=$1
+    local parent_image
+
+    parent_image=$(awk 'toupper($1) == "FROM" { print $2; exit }' "$dockerfile")
+    if [ "$parent_image" != "$BASE_IMAGE_NAME" ]; then
+        return 0
+    fi
+
+    print_info "检查组件构建依赖：$BASE_IMAGE_NAME"
+    if docker image inspect "$BASE_IMAGE_NAME" >/dev/null 2>&1; then
+        print_success "基础镜像已存在：$BASE_IMAGE_NAME"
+        return 0
+    fi
+
+    print_error "缺少组件构建所需的基础镜像：$BASE_IMAGE_NAME"
+    print_error "请先在镜像管理菜单选择 Build Base Image，或执行以下命令："
+    echo "  Windows: .\\bigdata-cli.bat build-base"
+    echo "  Linux/WSL: bash bigdata-cli.sh build-base"
+    return 1
+}
+
 build_image() {
     local component=$1
     local architecture=$2
@@ -191,6 +236,11 @@ build_image() {
     
     if [ ! -f "$dockerfile" ]; then
         print_error "Dockerfile not found: $dockerfile"
+        return 1
+    fi
+
+    if ! check_base_image_dependency "$dockerfile"; then
+        print_error "已取消构建组件镜像：$image_name"
         return 1
     fi
 
@@ -608,6 +658,7 @@ show_help() {
     echo "  $0                      # Start interactive menu"
     echo ""
     echo "Command Line Mode:"
+    echo "  $0 build-base"
     echo "  $0 [options] <command> <component>"
     echo ""
     echo "Options:"
@@ -615,6 +666,7 @@ show_help() {
     echo "  -h, --help                  Show this help message"
     echo ""
     echo "Commands:"
+    echo "  build-base                  Build bigdata-base:latest"
     echo "  build <component>           Build Docker image"
     echo "  delete <component>          Delete Docker image"
     echo "  start <component>           Start containers"
@@ -633,6 +685,7 @@ show_help() {
     echo ""
     echo "Examples:"
     echo "  $0                           # Start interactive menu"
+    echo "  $0 build-base                # Build the shared base image"
     echo "  $0 start hadoop              # Start Hadoop single-component cluster"
     echo "  $0 -a multi start all        # Start full-stack cluster"
     echo "  $0 status zookeeper          # Check ZooKeeper status"
@@ -691,11 +744,12 @@ show_component_menu() {
 show_image_management_menu() {
     echo -e "${BLUE}=== Image Management ===${NC}"
     echo ""
-    echo "1. Build Image"
-    echo "2. Delete Image"
+    echo "1. Build Base Image"
+    echo "2. Build Component Image"
+    echo "3. Delete Component Image"
     echo "0. Back to Main Menu"
     echo ""
-    echo -n "Enter your choice (0-2): "
+    echo -n "Enter your choice (0-3): "
 }
 
 show_container_management_menu() {
@@ -787,12 +841,15 @@ interactive_image_management() {
         choice="${choice%$'\r'}"
         
         case $choice in
-            1) # Build Image
+            1) # Build Base Image
+                build_base_image
+                ;;
+            2) # Build Component Image
                 if select_component_and_architecture; then
                     build_image "$selected_component" "$selected_architecture"
                 fi
                 ;;
-            2) # Delete Image
+            3) # Delete Component Image
                 if select_component_and_architecture; then
                     delete_image "$selected_component" "$selected_architecture"
                 fi
@@ -1037,6 +1094,10 @@ main() {
                     shift
                 fi
                 ;;
+            build-base)
+                command="build-base"
+                shift
+                ;;
             clean-volumes)
                 command="clean-volumes"
                 shift
@@ -1054,6 +1115,9 @@ main() {
     
     # Execute command
     case $command in
+        build-base)
+            build_base_image
+            ;;
         build)
             build_image "$component" "$architecture"
             ;;

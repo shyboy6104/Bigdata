@@ -118,9 +118,15 @@ docker network create bigdata-net
 
 ### 2.4 准备基础镜像与离线安装包
 
-CLI 的 `build <component>` 只构建指定组件，不会自动构建父镜像，也不会下载 `module` 中的离线包。
+CLI 不会静默地自动构建父镜像，也不会下载 `module` 中的离线包。基础镜像可以通过镜像管理菜单中的 `Build Base Image` 构建，也可以直接执行：
 
-除 MySQL 外，大多数组件依赖 `bigdata-base:latest`。第一次构建组件前先执行：
+```powershell
+.\bigdata-cli.bat build-base
+```
+
+执行 `build <component>` 时，CLI 会读取组件 Dockerfile 的 `FROM`。如果组件直接依赖 `bigdata-base:latest` 而该镜像不存在，CLI 会终止本次组件构建，并明确提示先执行 `build-base`。
+
+除 MySQL 外，大多数组件依赖 `bigdata-base:latest`。也可以使用等价的原生 Docker 命令：
 
 ```powershell
 docker build -f dockerfile.base -t bigdata-base:latest .
@@ -298,6 +304,7 @@ PowerShell 示例：
 
 | 命令 | 示例 | 实际行为 | 数据影响 |
 |---|---|---|---|
+| `build-base` | `build-base` | 使用 `dockerfile.base` 构建 `bigdata-base:latest` | 不删除容器数据 |
 | `build` | `build spark` | 根据组件 Dockerfile 构建镜像 | 不删除容器数据 |
 | `delete` | `delete spark` | 删除对应 Docker 镜像 | 不删除数据；被容器占用时可能失败 |
 | `start` | `start spark` | 执行 Compose `up -d` | 保留已有数据 |

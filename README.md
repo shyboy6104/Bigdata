@@ -100,7 +100,11 @@ bash scripts/network.sh
 
 所有 Apache 组件镜像都依赖 `bigdata-base:latest`：
 
-```bash
+```powershell
+# 使用项目 CLI（Windows）
+.\bigdata-cli.bat build-base
+
+# 或直接使用 Docker
 docker build -f dockerfile.base -t bigdata-base:latest .
 ```
 
@@ -127,7 +131,7 @@ git diff -- dockerfile.*
 
 ### 3. 启动独立组件
 
-CLI 支持交互菜单和命令模式，但不会自动构建基础镜像，也不会自动启动上游依赖。
+CLI 支持交互菜单和命令模式。镜像管理菜单提供 `Build Base Image`，命令行也支持 `build-base`。构建直接继承 `bigdata-base:latest` 的组件时，CLI 会先检查基础镜像；若不存在则终止组件构建并显示构建基础镜像的命令。CLI 不会静默自动构建基础镜像，也不会自动启动上游依赖。
 
 ```bash
 # 查看组件
