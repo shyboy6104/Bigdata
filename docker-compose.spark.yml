@@ -22,6 +22,8 @@ services:
       - "7077:7077"  # Spark Master端口
       - "8080:8080"  # Spark Master Web UI
       - "18080:18080"  # Spark History Server
+    expose:
+      - "22"  # 仅供bigdata-net内部通过SSH批量管理Worker，不映射到宿主机
     networks:
       - bigdata-net
 
@@ -45,6 +47,8 @@ services:
       - ./data/spark/logs:/opt/spark/logs
     ports:
       - "8081:8081"  # Spark Worker Web UI
+    expose:
+      - "22"  # 接收spark-master发起的免密SSH管理命令
     networks:
       - bigdata-net
     depends_on:
@@ -70,6 +74,8 @@ services:
       - ./data/spark/logs:/opt/spark/logs
     ports:
       - "8082:8081"  # Spark Worker Web UI
+    expose:
+      - "22"  # 接收spark-master发起的免密SSH管理命令
     networks:
       - bigdata-net
     depends_on:

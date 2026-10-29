@@ -166,8 +166,16 @@ RUN tar -xf /tmp/flink-${FLINK_VERSION}-bin-scala_2.12.tar -C /opt && \
 # 原理：统一使用基础镜像提供的兼容库版本
 # ===============================================
 
-# 复制MySQL JDBC驱动到Hive lib目录
-RUN cp /tmp/mysql-connector-java-5.1.49.jar $HIVE_HOME/lib/
+# 复制MySQL JDBC驱动到Hive与Spark的默认类路径。
+# 五节点使用统一镜像，因此master和worker-1/2/3都会获得同一份驱动；
+# Connector/J 5.1.49应使用com.mysql.jdbc.Driver。
+RUN install -m 0644 /tmp/mysql-connector-java-5.1.49.jar \
+        $HIVE_HOME/lib/mysql-connector-java-5.1.49.jar && \
+    install -m 0644 /tmp/mysql-connector-java-5.1.49.jar \
+        $SPARK_HOME/jars/mysql-connector-java-5.1.49.jar && \
+    jar tf $SPARK_HOME/jars/mysql-connector-java-5.1.49.jar \
+        | grep -qx 'com/mysql/jdbc/Driver.class' && \
+    rm /tmp/mysql-connector-java-5.1.49.jar
 
 # 解决Hive和Hadoop Guava版本冲突
 RUN rm -f $HIVE_HOME/lib/guava-*.jar && \

@@ -26,7 +26,28 @@ RUN tar -xzf /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz && \
     rm /tmp/spark-${SPARK_VERSION}-bin-hadoop3.2.tgz && \
     python3 -c "import pyspark; print('PySpark ' + pyspark.__version__)"
 
-RUN mkdir -p ${SPARK_HOME}/logs
+# MySQL Connector/J 5.1.49同时放入Master和Worker使用的Spark默认JAR目录。
+# Spark Driver和Executor启动时都会扫描该目录，因此无需每次手工docker cp或
+# 额外传递--jars。5.1.49对应的驱动类是com.mysql.jdbc.Driver。
+COPY module/mysql-connector-java-5.1.49.jar ${SPARK_HOME}/jars/mysql-connector-java-5.1.49.jar
+RUN test -s ${SPARK_HOME}/jars/mysql-connector-java-5.1.49.jar && \
+    jar tf ${SPARK_HOME}/jars/mysql-connector-java-5.1.49.jar \
+      | grep -qx 'com/mysql/jdbc/Driver.class'
+
+# Spark原生start-all.sh/stop-all.sh通过SSH批量管理workers文件中的节点。
+# 基础镜像已经生成root免密密钥；这里补充客户端策略，确保容器重建后不会因
+# 主机指纹变化进入交互确认，同时使用BatchMode禁止退化为密码提示。
+RUN mkdir -p ${SPARK_HOME}/logs /run/sshd /root/.ssh && \
+    chmod 0700 /root/.ssh && \
+    printf '%s\n' \
+      'Host spark-worker1 spark-worker2' \
+      '    BatchMode yes' \
+      '    StrictHostKeyChecking no' \
+      '    UserKnownHostsFile /dev/null' \
+      '    ConnectTimeout 5' \
+      '    LogLevel ERROR' \
+      > /root/.ssh/config && \
+    chmod 0600 /root/.ssh/config
 # 复制配置文件和脚本
 COPY config/ /config/
 COPY scripts/spark-entrypoint.sh /scripts/spark-entrypoint.sh
@@ -34,6 +55,7 @@ RUN chmod +x /scripts/spark-entrypoint.sh
 
 WORKDIR ${SPARK_HOME}
 
-EXPOSE 7077 8080 8081 4040 18080
+# 22用于Spark原生集群脚本的容器间SSH；其余端口分别用于RPC和Web UI。
+EXPOSE 22 7077 8080 8081 4040 18080
 
 ENTRYPOINT ["/scripts/spark-entrypoint.sh"]

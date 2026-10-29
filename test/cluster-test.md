@@ -39,7 +39,7 @@ bash test/cluster-test.sh
 
 ### 6. 计算引擎
 
-- Spark：Master、三个Worker、Python/PySpark运行时、Scala SparkPi以及PySpark RDD/DataFrame作业；Scala与PySpark都分别验证Standalone和YARN模式。
+- Spark：Master、三个Worker、Python/PySpark运行时、Scala SparkPi以及PySpark RDD/DataFrame作业；Scala与PySpark都分别验证Standalone和YARN模式。另检查四个Spark节点的Connector/J，并从PySpark真实读取infra节点MySQL测试表。
 - Flink：JobManager、TaskManager 注册和 WordCount 作业。
 
 ### 7. 基础数据库
@@ -57,7 +57,7 @@ bash test/cluster-test.sh
 | 容器/进程 | 五个容器和必要 Supervisor 服务运行 |
 | 存储/协调 | HDFS、ZooKeeper、HBase 读写成功 |
 | SQL/消息 | Hive、MySQL、Kafka、Flume 链路成功 |
-| 计算 | MapReduce、Scala Spark、PySpark和Flink作业成功 |
+| 计算 | MapReduce、Scala Spark、PySpark、PySpark JDBC和Flink作业成功 |
 | 汇总 | 失败数为 0 |
 
 `run_test` 会为每个测试项记录名称、实际命令、命令输出和退出码：命令退出码为 `0` 时该项通过，否则该项失败。全部测试结束后，只有 `FAILED_TESTS=0` 时脚本返回退出码 `0`；即使成功率超过 80%，只要存在一个失败项，整体仍返回退出码 `1`。
@@ -77,18 +77,21 @@ bash test/cluster-test.sh
 | Flume | Agent 进程/配置检查、临时 Agent、唯一消息消费 | Agent 与配置存在，Flume 发送的唯一消息能从 Kafka 找到 |
 | 完整数据管道 | 创建 Topic、启动管道 Agent、写入唯一数据、Kafka 消费 | 端到端消息匹配且 Topic 可访问 |
 | Spark运行时 | Master与三个Worker执行`python3 --version`，Master执行`import pyspark` | 四个节点均有Python 3，PySpark版本与Spark版本一致 |
+| Spark JDBC驱动 | 四个Spark节点执行`jar tf /opt/spark/jars/mysql-connector-java-5.1.49.jar` | JAR均存在且包含`com/mysql/jdbc/Driver.class` |
 | Scala Spark | Standalone/YARN SparkPi | 至少3个Worker，两种模式均输出`Pi is roughly` |
 | PySpark | Standalone/YARN提交`pyspark-smoke.py` | 两种模式均输出`PYSPARK_SMOKE_OK square_sum=55 adult_count=2` |
+| PySpark→MySQL | infra创建3行测试表，Master向Standalone提交`pyspark-mysql-smoke.py` | JDBC读取3行、age合计90，并输出`PYSPARK_MYSQL_JDBC_OK`；随后删除测试表 |
 | Flink | JobManager 端口/Dashboard、TaskManager 数量、WordCount | 至少 1 个 TaskManager，作业命令成功 |
-| MySQL | 端口、连接、`hive_metastore`、测试表 CRUD | 数据库存在，插入值可查询，测试表清理成功 |
+| MySQL | 端口、连接、`hive_metastore`、hive账号认证插件、测试表 CRUD | 数据库存在，`hive@%`使用`mysql_native_password`兼容Connector/J 5.1.49，插入值可查询，测试表清理成功 |
 
 ## 失败定位顺序
 
 1. 先看容器是否运行。
 2. 再看 Supervisor/Java 进程是否存在。
 3. 再看进程是否完成集群注册，例如 DataNode、NodeManager、TaskManager。
-4. 再执行最小业务操作，例如 HDFS 写一行、Kafka 发一条、Hive 查一行。
-5. 最后才运行跨组件链路，避免在底层未就绪时分析上层复杂错误。
+4. JDBC失败时先核对四个Spark节点是否都有JAR，再区分驱动类错误、MySQL账号权限和`infra:3306`网络连接问题。Connector/J 5.1.49使用`com.mysql.jdbc.Driver`，不是`com.mysql.cj.jdbc.Driver`。
+5. 再执行最小业务操作，例如 HDFS 写一行、Kafka 发一条、Hive 查一行。
+6. 最后才运行跨组件链路，避免在底层未就绪时分析上层复杂错误。
 
 ## 日志与失败定位
 

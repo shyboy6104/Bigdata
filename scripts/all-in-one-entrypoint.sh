@@ -459,9 +459,11 @@ init_mysql() {
     echo "创建Hive用户和数据库..."
     mysql -u root <<EOF
 CREATE DATABASE IF NOT EXISTS hive_metastore DEFAULT CHARACTER SET latin1 COLLATE latin1_swedish_ci;
-CREATE USER IF NOT EXISTS 'hive'@'%' IDENTIFIED BY 'hive';
+CREATE USER IF NOT EXISTS 'hive'@'%' IDENTIFIED WITH mysql_native_password BY 'hive';
+ALTER USER 'hive'@'%' IDENTIFIED WITH mysql_native_password BY 'hive';
 GRANT ALL PRIVILEGES ON hive_metastore.* TO 'hive'@'%';
-CREATE USER IF NOT EXISTS 'hive'@'localhost' IDENTIFIED BY 'hive';
+CREATE USER IF NOT EXISTS 'hive'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hive';
+ALTER USER 'hive'@'localhost' IDENTIFIED WITH mysql_native_password BY 'hive';
 GRANT ALL PRIVILEGES ON hive_metastore.* TO 'hive'@'localhost';
 FLUSH PRIVILEGES;
 EOF

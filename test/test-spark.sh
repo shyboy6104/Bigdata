@@ -29,6 +29,9 @@ streaming_ok=false
 scala_runtime_ok=false
 python_runtime_ok=false
 pyspark_ok=false
+workers_config_ok=false
+ssh_lifecycle_ok=false
+mysql_connector_ok=false
 
 log "=== Spark 集群测试 ==="
 log "测试开始时间: $(date)"
@@ -44,7 +47,6 @@ else
     echo "警告: 环境配置文件不存在，使用默认版本 3.1.1"
     SPARK_VERSION="3.1.1"
 fi
-echo
 
 # 检测 Hadoop 环境（HA 或 非HA）
 if docker ps --format "{{.Names}}" 2>/dev/null | grep -q "namenode1"; then
@@ -61,6 +63,160 @@ echo
 # 检查 Spark 容器状态
 echo "1. 检查 Spark 容器状态..."
 docker ps | grep -E "spark-master|spark-worker"
+echo
+
+# 检查 Spark 3.x Worker 主机列表。三个容器应使用同一份 workers 配置，
+# 且不应再残留旧版本使用的 slaves 文件。
+echo "1.1 检查 Spark Worker 主机列表配置..."
+workers_config_ok=true
+for container in spark-master spark-worker1 spark-worker2; do
+    if docker exec "$container" test -e /opt/spark/conf/slaves; then
+        echo "✗ $container 仍存在旧配置 /opt/spark/conf/slaves"
+        workers_config_ok=false
+    fi
+
+    if docker exec "$container" test -f /opt/spark/hadoop-conf/core-site.xml; then
+        echo "✓ $container Hadoop客户端配置已隔离到 /opt/spark/hadoop-conf"
+    else
+        echo "✗ $container 缺少 /opt/spark/hadoop-conf/core-site.xml"
+        workers_config_ok=false
+    fi
+
+    worker_hosts=$(docker exec "$container" awk \
+        '!/^[[:space:]]*(#|$)/ {print $1}' /opt/spark/conf/workers 2>&1)
+    if [ "$worker_hosts" = $'spark-worker1\nspark-worker2' ]; then
+        echo "✓ $container workers 配置正确: spark-worker1、spark-worker2"
+    else
+        echo "✗ $container workers 配置错误"
+        echo "  期望: spark-worker1、spark-worker2"
+        echo "  实际内容:"
+        echo "$worker_hosts" | sed 's/^/    /'
+        workers_config_ok=false
+    fi
+done
+echo
+
+# 验证Spark原生SSH集群管理链路。该测试不仅检查22端口，还真实执行一次
+# stop-all.sh与start-all.sh，并确认Master及两个Worker均按预期停止、重启和注册。
+echo "1.2 测试基于 SSH 的 start-all.sh/stop-all.sh..."
+ssh_connectivity_ok=true
+for worker in spark-worker1 spark-worker2; do
+    ssh_output=$(docker exec spark-master ssh \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=5 \
+        -o LogLevel=ERROR \
+        "$worker" hostname 2>&1)
+    if [ $? -eq 0 ] && [ "$ssh_output" = "$worker" ]; then
+        echo "✓ spark-master 可免密 SSH 登录 $worker，远程hostname为 $ssh_output"
+    else
+        echo "✗ spark-master 无法免密 SSH 登录 $worker"
+        echo "  期望远程hostname: $worker"
+        echo "  实际输出: $ssh_output"
+        ssh_connectivity_ok=false
+    fi
+done
+
+if [ "$ssh_connectivity_ok" = true ]; then
+    echo "1.2.1 确认启停测试前Master和两个Worker均已运行..."
+    prepare_output=$(docker exec spark-master timeout 60 bash -lc \
+        'cd /opt/spark && ./sbin/start-all.sh' 2>&1)
+    echo "$prepare_output" | sed 's/^/  /'
+
+    initial_cluster_ready=false
+    for attempt in {1..45}; do
+        master_process_count=$(docker exec spark-master jps 2>/dev/null | awk '$2 == "Master" {count++} END {print count+0}')
+        worker1_process_count=$(docker exec spark-worker1 jps 2>/dev/null | awk '$2 == "Worker" {count++} END {print count+0}')
+        worker2_process_count=$(docker exec spark-worker2 jps 2>/dev/null | awk '$2 == "Worker" {count++} END {print count+0}')
+        if [ "$master_process_count" -eq 1 ] \
+            && [ "$worker1_process_count" -eq 1 ] \
+            && [ "$worker2_process_count" -eq 1 ]; then
+            initial_master_json=$(docker exec spark-master curl -fsS http://127.0.0.1:8080/json/ 2>/dev/null || true)
+            if echo "$initial_master_json" | grep -Eq '"aliveworkers"[[:space:]]*:[[:space:]]*2'; then
+                initial_cluster_ready=true
+                break
+            fi
+        fi
+        sleep 1
+    done
+
+    if [ "$initial_cluster_ready" = true ]; then
+        echo "✓ 前置状态正常：Master运行且已注册2个Worker"
+        echo "1.2.2 执行 /opt/spark/sbin/stop-all.sh --wait..."
+    stop_all_output=$(docker exec spark-master timeout 60 bash -lc \
+        'cd /opt/spark && ./sbin/stop-all.sh --wait' 2>&1)
+    stop_all_status=$?
+    echo "$stop_all_output" | sed 's/^/  /'
+
+    daemons_stopped=false
+    if [ "$stop_all_status" -eq 0 ]; then
+        for attempt in {1..20}; do
+            if ! docker exec spark-master jps 2>/dev/null | grep -Eq '[[:space:]]Master$' \
+                && ! docker exec spark-worker1 jps 2>/dev/null | grep -Eq '[[:space:]]Worker$' \
+                && ! docker exec spark-worker2 jps 2>/dev/null | grep -Eq '[[:space:]]Worker$'; then
+                daemons_stopped=true
+                break
+            fi
+            sleep 1
+        done
+    fi
+
+    if [ "$daemons_stopped" = true ]; then
+        echo "✓ stop-all.sh 已通过 SSH 停止Master和两个Worker"
+    else
+        echo "✗ stop-all.sh 未能完整停止集群守护进程（退出码: $stop_all_status）"
+        echo "  当前进程状态:"
+        for container in spark-master spark-worker1 spark-worker2; do
+            echo "  [$container]"
+            docker exec "$container" jps 2>&1 | sed 's/^/    /'
+        done
+    fi
+
+    echo "1.2.3 执行 /opt/spark/sbin/start-all.sh..."
+    start_all_output=$(docker exec spark-master timeout 60 bash -lc \
+        'cd /opt/spark && ./sbin/start-all.sh' 2>&1)
+    start_all_status=$?
+    echo "$start_all_output" | sed 's/^/  /'
+
+    daemons_started=false
+    workers_registered=false
+    if [ "$start_all_status" -eq 0 ]; then
+        for attempt in {1..30}; do
+            master_process_count=$(docker exec spark-master jps 2>/dev/null | awk '$2 == "Master" {count++} END {print count+0}')
+            worker1_process_count=$(docker exec spark-worker1 jps 2>/dev/null | awk '$2 == "Worker" {count++} END {print count+0}')
+            worker2_process_count=$(docker exec spark-worker2 jps 2>/dev/null | awk '$2 == "Worker" {count++} END {print count+0}')
+            if [ "$master_process_count" -eq 1 ] \
+                && [ "$worker1_process_count" -eq 1 ] \
+                && [ "$worker2_process_count" -eq 1 ]; then
+                daemons_started=true
+                master_json=$(docker exec spark-master curl -fsS http://127.0.0.1:8080/json/ 2>/dev/null || true)
+                if echo "$master_json" | grep -Eq '"aliveworkers"[[:space:]]*:[[:space:]]*2'; then
+                    workers_registered=true
+                    break
+                fi
+            fi
+            sleep 1
+        done
+    fi
+
+    if [ "$daemons_stopped" = true ] \
+        && [ "$daemons_started" = true ] \
+        && [ "$workers_registered" = true ]; then
+        echo "✓ start-all.sh 已启动Master和两个Worker，Master显示2个存活Worker"
+        ssh_lifecycle_ok=true
+    else
+        echo "✗ start-all.sh 集群恢复检查失败（退出码: $start_all_status）"
+        echo "  Master进程已启动: $daemons_started"
+        echo "  两个Worker已注册: $workers_registered"
+    fi
+    else
+        echo "✗ 无法建立启停测试前置状态，未执行stop-all.sh，避免产生误判"
+        echo "  要求：Master进程、两个Worker进程均运行，且aliveworkers为2"
+    fi
+else
+    echo "✗ SSH免密连接未全部通过，为避免停止后无法恢复，跳过stop-all/start-all实测"
+fi
 echo
 
 # 检查Scala与Python/PySpark运行环境
@@ -97,6 +253,25 @@ else
     echo "  实际输出: $pyspark_import_output"
     python_runtime_ok=false
 fi
+
+# 检查镜像是否把Connector/J放入每个Spark节点的默认JAR目录。
+# 这里只验证镜像交付与驱动类；真实MySQL JDBC读写由五节点综合测试覆盖。
+echo "2.1 检查 MySQL Connector/J 运行依赖..."
+mysql_connector_ok=true
+mysql_connector_jar="/opt/spark/jars/mysql-connector-java-5.1.49.jar"
+for container in spark-master spark-worker1 spark-worker2; do
+    connector_entries=$(docker exec "$container" jar tf "$mysql_connector_jar" 2>&1)
+    if [ $? -eq 0 ] \
+        && echo "$connector_entries" | grep -qx 'com/mysql/jdbc/Driver.class'; then
+        echo "✓ $container 已内置Connector/J 5.1.49，驱动类为com.mysql.jdbc.Driver"
+    else
+        echo "✗ $container 的MySQL Connector/J缺失或驱动类不正确"
+        echo "  检查路径: $mysql_connector_jar"
+        echo "  实际输出:"
+        echo "$connector_entries" | tail -20 | sed 's/^/    /'
+        mysql_connector_ok=false
+    fi
+done
 echo
 
 # 测试 Spark Master Web UI
@@ -334,6 +509,9 @@ if [ "$worker1_status" = "200" ] || [ "$worker2_status" = "200" ]; then
 else
     echo "- Spark Worker Web UI: ⚠ 异常"
 fi
+echo "- Spark workers 主机列表: $([ "$workers_config_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
+echo "- SSH原生start-all/stop-all: $([ "$ssh_lifecycle_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
+echo "- MySQL Connector/J: $([ "$mysql_connector_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
 echo "- Spark standalone 模式: $([ "$standalone_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
 echo "- PySpark standalone 模式: $([ "$pyspark_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
 echo "- Spark on YARN 模式: $([ "$yarn_ok" = true ] && echo "✓ 正常" || echo "✗ 异常")"
@@ -347,6 +525,9 @@ echo "详细日志: $LOG_FILE"
 failure_count=0
 [ "$scala_runtime_ok" = true ] || failure_count=$((failure_count + 1))
 [ "$python_runtime_ok" = true ] || failure_count=$((failure_count + 1))
+[ "$workers_config_ok" = true ] || failure_count=$((failure_count + 1))
+[ "$ssh_lifecycle_ok" = true ] || failure_count=$((failure_count + 1))
+[ "$mysql_connector_ok" = true ] || failure_count=$((failure_count + 1))
 [ "$master_status" = "200" ] || failure_count=$((failure_count + 1))
 if [ "$worker1_status" != "200" ] && [ "$worker2_status" != "200" ]; then
     failure_count=$((failure_count + 1))

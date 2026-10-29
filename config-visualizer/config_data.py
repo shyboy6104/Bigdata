@@ -243,6 +243,8 @@ DESCRIPTIONS = {
     "SPARK_DAEMON_MEMORY": "Spark守护进程的内存大小",
     "SPARK_DAEMON_JAVA_OPTS": "Spark守护进程的JVM选项",
     "SPARK_HISTORY_OPTS": "Spark历史服务器的JVM选项",
+    "SPARK_IDENT_STRING": "Spark守护进程PID和日志文件标识，入口脚本与SSH会话必须一致",
+    "SPARK_SSH_OPTS": "Spark批量管理Worker时传给SSH客户端的连接选项",
     "SPARK_DIST_CLASSPATH": "Spark分布式类路径，包含Hadoop等依赖",
     "SPARK_LOCAL_IP": "Spark本机IP地址，多网卡环境需指定",
     "SPARK_PUBLIC_DNS": "Spark对外DNS名称，影响Web UI显示",
@@ -641,10 +643,12 @@ PRESET_ITEMS = {
             "SPARK_WORKER_WEBUI_PORT", "SPARK_WORKER_DIR",
             "SPARK_DAEMON_MEMORY", "SPARK_DAEMON_JAVA_OPTS",
             "SPARK_HISTORY_OPTS",
+            "SPARK_IDENT_STRING",
+            "SPARK_SSH_OPTS",
             "SPARK_DIST_CLASSPATH",
             "SPARK_LOCAL_IP", "SPARK_PUBLIC_DNS",
         ],
-        "slaves": [],
+        "workers": [],
     },
     "flink": {
         "flink-conf.yaml": [

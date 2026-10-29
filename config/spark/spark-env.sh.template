@@ -1,12 +1,20 @@
 export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
-export HADOOP_CONF_DIR=/opt/spark/conf
-export YARN_CONF_DIR=/opt/spark/conf
+# Hadoop客户端配置与Spark自身配置分目录保存，避免两个组件的workers同名冲突。
+export HADOOP_CONF_DIR=/opt/spark/hadoop-conf
+export YARN_CONF_DIR=/opt/spark/hadoop-conf
 
 # PySpark Python解释器配置
 # Driver和Executor统一使用Python 3；Spark自带的pyspark与py4j加入模块搜索路径。
 export PYSPARK_DRIVER_PYTHON=${PYSPARK_DRIVER_PYTHON:-/usr/bin/python3}
 export PYSPARK_PYTHON=${PYSPARK_PYTHON:-/usr/bin/python3}
 export PYTHONPATH="$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9-src.zip:${PYTHONPATH:-}"
+
+# Docker入口脚本和SSH会话统一使用root标识，确保双方读取同一组PID文件。
+export SPARK_IDENT_STRING=${SPARK_IDENT_STRING:-root}
+
+# Spark原生start-all.sh/stop-all.sh通过SSH管理workers中的节点。
+# 禁止密码交互并忽略可重建容器的host key变化，确保课堂命令可重复执行。
+export SPARK_SSH_OPTS="${SPARK_SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR}"
 
 export SPARK_MASTER_HOST=spark-master
 export SPARK_MASTER_PORT=7077

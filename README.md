@@ -469,6 +469,25 @@ spark-submit \
 
 Spark 根据 `config/environment.conf` 中的 `HADOOP_ENVIRONMENT` 选择标准或 HA Hadoop 配置。修改后必须重新创建 Spark 容器；仅停止后启动旧容器不会更新容器环境与启动阶段生成的配置。需要临时覆盖时，可以在宿主机显式设置同名环境变量。
 
+三个独立Spark容器均运行SSH服务，并使用基础镜像提供的root免密密钥。可以在Master中演示Spark原生的集群批量管理流程：
+
+```bash
+docker exec -it spark-master bash
+
+# 验证Master能够免密登录两个Worker
+ssh -o BatchMode=yes spark-worker1 hostname
+ssh -o BatchMode=yes spark-worker2 hostname
+
+# workers中的每个主机都会通过SSH执行Worker停止脚本，然后停止本机Master
+cd /opt/spark
+./sbin/stop-all.sh --wait
+
+# 启动本机Master，再通过SSH启动workers中的两个Worker
+./sbin/start-all.sh
+```
+
+当`stop-all.sh`执行完成时，三个Spark守护进程应停止，但容器本身仍保持运行；执行`start-all.sh`后，Master页面应重新显示两个ALIVE Worker。SSH只在Docker内部`bigdata-net`网络使用，Compose没有把22端口映射到宿主机。若要直接管理容器生命周期，仍使用`docker compose -f docker-compose.spark.yml stop/start`。
+
 Spark SQL 可以在 `spark-shell` 中演示：
 
 ```scala
@@ -494,6 +513,20 @@ docker exec spark-master spark-submit \
 ```
 
 作业输出`PYSPARK_SMOKE_OK square_sum=55 adult_count=2`表示Python Driver、Worker端Python进程、RDD和DataFrame计算均正常。完整自动测试使用`bash test/test-spark.sh`。
+
+独立Spark镜像和五节点全栈镜像都已内置`/opt/spark/jars/mysql-connector-java-5.1.49.jar`，不需要再向运行中的容器执行`docker cp`。该版本的驱动类是`com.mysql.jdbc.Driver`；修改镜像后必须重新构建并重建容器，已经启动的PySpark JVM不会动态重新扫描JAR目录。
+
+```python
+df = spark.read.format("jdbc") \
+    .option("driver", "com.mysql.jdbc.Driver") \
+    .option("url", "jdbc:mysql://mysql:3306/spark?useSSL=false") \
+    .option("dbtable", "person") \
+    .option("user", "root") \
+    .option("password", "root") \
+    .load()
+```
+
+五节点架构中的MySQL主机名为`infra`。综合测试会使用`hive/hive`账号在`hive_metastore`中创建临时表，提交真实PySpark JDBC读取，再清理测试数据。五节点Spark进程由Supervisor管理，不使用独立Spark容器的SSH`start-all.sh/stop-all.sh`流程。
 
 ### Flink：作业提交与管理
 
@@ -695,7 +728,7 @@ python main.py
 | Shell 环境 | `.sh` | Spark、Hadoop 环境变量 |
 | INI | `.cnf`、`.ini` | MySQL |
 | YAML | `.yaml`、`.yml` | Flink |
-| 主机列表 | `workers`、`slaves`、`regionservers` | Hadoop、Spark、HBase |
+| 主机列表 | `workers`、`regionservers` | Hadoop、Spark、HBase |
 | 纯文本 | `.txt`、`.md` | 说明或自定义内容 |
 
 新增组件时，工具会在工作区创建组件目录；新增文件时会按类型生成基础模板。配置项说明和核心项标记来自 `config-visualizer/config_data.py`。

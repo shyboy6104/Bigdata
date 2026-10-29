@@ -167,6 +167,16 @@ Hadoop 3.1.3 已属于历史版本，本项目固定该版本是为了与现有�
 
 Spark 镜像依赖基础镜像；若要同时启动标准 Hadoop，还需要先按 2.4 节下载 Hadoop 压缩包并构建 Hadoop 镜像。按以下顺序执行：
 
+当前Spark镜像还会把MySQL Connector/J复制到默认JAR目录。构建前必须确认以下文件存在且不是0字节：
+
+```powershell
+$connector = 'module\mysql-connector-java-5.1.49.jar'
+if (-not (Test-Path -LiteralPath $connector -PathType Leaf) -or
+    (Get-Item -LiteralPath $connector).Length -eq 0) {
+    throw "缺少Spark JDBC构建依赖：$connector"
+}
+```
+
 ```powershell
 docker build -f dockerfile.base -t bigdata-base:latest .
 docker build -f dockerfile.hadoop -t bigdata-hadoop:latest .
@@ -186,7 +196,7 @@ docker image ls bigdata-spark:latest
 ### 3.1 在启动集群前检查镜像中的运行时
 
 ```powershell
-docker run --rm --entrypoint bash bigdata-spark:latest -c "python3 --version && python3 -c 'import pyspark; print(pyspark.__version__)' && spark-submit --version"
+docker run --rm --entrypoint bash bigdata-spark:latest -c "python3 --version && python3 -c 'import pyspark; print(pyspark.__version__)' && spark-submit --version && jar tf /opt/spark/jars/mysql-connector-java-5.1.49.jar | grep '^com/mysql/jdbc/Driver.class$'"
 ```
 
 预期看到类似内容：
@@ -197,7 +207,7 @@ Python 3.8.10
 version 3.1.1
 ```
 
-通过条件：三个检查都成功，尤其是 `import pyspark` 不能出现 `ModuleNotFoundError`。
+通过条件：四个检查都成功，尤其是 `import pyspark` 不能出现`ModuleNotFoundError`，JAR检查必须输出`com/mysql/jdbc/Driver.class`。
 
 ## 4. 启动独立组件架构
 
@@ -1067,8 +1077,27 @@ bash test/cluster-test.sh
 - PySpark Standalone RDD/DataFrame 作业通过。
 - Scala Spark on YARN 作业通过。
 - PySpark on YARN RDD/DataFrame 作业通过。
+- Master和三个Worker均内置Connector/J 5.1.49，PySpark能从infra节点MySQL读取测试表。
 
 完整流程和每项判定见 [test/cluster-test.md](test/cluster-test.md)。
+
+### 11.5 使用PySpark读取MySQL
+
+Connector/J已经在镜像构建阶段放入`/opt/spark/jars`，不要在PySpark Shell启动后临时复制JAR。Connector/J 5.1.49对应的驱动类为`com.mysql.jdbc.Driver`：
+
+```python
+df = spark.read.format("jdbc") \
+    .option("driver", "com.mysql.jdbc.Driver") \
+    .option("url", "jdbc:mysql://infra:3306/hive_metastore?useSSL=false") \
+    .option("dbtable", "spark_jdbc_test_person") \
+    .option("user", "hive") \
+    .option("password", "hive") \
+    .load()
+
+df.show()
+```
+
+五节点架构使用`infra`作为MySQL主机名；独立组件架构使用`mysql`。全栈入口脚本会把`hive@%`账号固定为`mysql_native_password`，使实际安装的MySQL 8能够兼容Connector/J 5.1.49。如果出现`ClassNotFoundException: com.mysql.cj.jdbc.Driver`，说明代码使用了Connector/J 8.x的类名；本项目5.1.49应改为`com.mysql.jdbc.Driver`，然后退出并重新启动PySpark Shell。
 
 ## 12. 常见故障与定位方法
 
@@ -1078,6 +1107,7 @@ bash test/cluster-test.sh
 | 构建 Hadoop 镜像时提示找不到 `hadoop-3.1.3.tar.gz` | Hadoop 离线包尚未下载、目录不正确或文件名不匹配 | 按 2.4 节下载二进制发行包，并确认路径精确为 `module/hadoop-3.1.3.tar.gz` |
 | `ModuleNotFoundError: No module named 'pyspark'` | Python 没有找到 Spark 自带模块 | 执行 `docker exec spark-master bash -c 'echo $PYTHONPATH'`，确认含 `/opt/spark/python` 和 Py4J 路径 |
 | `Cannot run program /usr/bin/python3` | Executor 容器缺少 Python 或解释器路径不一致 | 分别在 Master、每个 Worker 中执行 `python3 --version` |
+| `ClassNotFoundException: com.mysql.cj.jdbc.Driver` | Connector/J 5.1.49不包含8.x驱动类，或JAR是在当前JVM启动后才复制 | 使用`com.mysql.jdbc.Driver`；确认JAR位于`/opt/spark/jars`后退出并重新启动PySpark |
 | `Failed to connect to master` | Master 未启动、地址错误或网络不通 | 检查 `docker compose ... ps`、`docker logs spark-master` 和 `spark://spark-master:7077` |
 | Master 页面没有 Worker | Worker 尚未注册或反复退出 | 查看两个 Worker 日志，检查三个容器是否都连接 `bigdata-net` |
 | 作业一直等待资源，并反复出现 `Initial job has not accepted any resources` | Worker 虽然已经注册，但没有足够的空闲 Core/Memory；常见原因是先前启动的 `PySparkShell` 仍占用全部核心 | 按 12.1 节检查并释放旧应用，再为教学作业设置资源上限 |

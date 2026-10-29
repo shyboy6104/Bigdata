@@ -1,0 +1,12 @@
+# ===============================================
+# Spark 集群 Worker 节点列表
+# 作用：供 start-workers.sh、stop-workers.sh 等批量管理脚本读取 Worker 主机名
+# 原理：脚本逐行读取主机名，并通过远程命令在对应节点启动或停止 Worker
+# Docker说明：容器首次启动时Worker会主动注册；同时每个Spark容器均启动sshd，
+#             可在spark-master内使用start-all.sh/stop-all.sh按本文件批量管理。
+# Spark版本：Spark 3.x 使用 workers；slaves 是旧版本名称，本项目不再生成。
+# ===============================================
+
+# 每行一个 Worker 容器 hostname，必须与 docker-compose.spark.yml 保持一致。
+spark-worker1
+spark-worker2

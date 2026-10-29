@@ -102,6 +102,12 @@ collect_failure_diagnostics() {
             docker exec worker-1 supervisorctl status kafka-broker 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
             docker exec infra supervisorctl status flume-agent 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
             ;;
+        *Spark*MySQL*|*PySpark*JDBC*)
+            log "  [诊断] Spark与MySQL JDBC链路状态:"
+            docker exec master supervisorctl status spark-master 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker exec worker-1 supervisorctl status spark-worker 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            docker exec infra supervisorctl status mysql 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
+            ;;
         *Spark*)
             log "  [诊断] Spark Supervisor 状态:"
             docker exec master supervisorctl status spark-master 2>&1 | sed 's/^/    /' | tee -a "$LOG_FILE" || true
@@ -566,6 +572,9 @@ test_spark() {
     run_test "Spark PySpark模块与Spark版本一致" \
         "test -n '$SPARK_VERSION' && docker exec master bash -c 'python3 -c \"import pyspark; print(pyspark.__version__)\"' | grep -qx '$SPARK_VERSION'"
 
+    run_test "Spark MySQL Connector/J已内置到master及3个worker" \
+        "for container in master worker-1 worker-2 worker-3; do docker exec \"\$container\" bash -c 'test -s /opt/spark/jars/mysql-connector-java-5.1.49.jar && jar tf /opt/spark/jars/mysql-connector-java-5.1.49.jar | grep -qx \"com/mysql/jdbc/Driver.class\"' || exit 1; done"
+
     run_test "Spark Master 端口可达" \
         "docker exec master bash -c 'echo > /dev/tcp/localhost/8080'"
 
@@ -597,10 +606,24 @@ test_spark() {
     run_test "PySpark on YARN RDD与DataFrame计算" \
         "docker exec master bash -c 'export HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop; timeout 180 /opt/spark/bin/spark-submit --master yarn --deploy-mode client /tmp/pyspark-smoke.py > /tmp/pyspark-yarn-test.log 2>&1; status=\$?; cat /tmp/pyspark-yarn-test.log; [ \$status -eq 0 ] && grep -q \"PYSPARK_SMOKE_OK square_sum=55 adult_count=2\" /tmp/pyspark-yarn-test.log'"
 
+    run_test "准备PySpark MySQL JDBC测试表" \
+        "docker exec infra mysql -uhive -phive hive_metastore -e 'DROP TABLE IF EXISTS spark_jdbc_test_person; CREATE TABLE spark_jdbc_test_person (id INT PRIMARY KEY, name VARCHAR(50), age INT); INSERT INTO spark_jdbc_test_person VALUES (1, \"Alice\", 25), (2, \"Bob\", 30), (3, \"Charlie\", 35);' 2>/dev/null"
+
+    run_test "复制PySpark MySQL JDBC测试脚本" \
+        "docker cp test/pyspark-mysql-smoke.py master:/tmp/pyspark-mysql-smoke.py"
+
+    run_test "PySpark通过Connector/J读取MySQL" \
+        "docker exec master bash -c 'export MYSQL_JDBC_URL=\"jdbc:mysql://infra:3306/hive_metastore?useSSL=false\"; export MYSQL_JDBC_TABLE=spark_jdbc_test_person; export MYSQL_JDBC_USER=hive; export MYSQL_JDBC_PASSWORD=hive; timeout 180 /opt/spark/bin/spark-submit --master spark://master:7077 /tmp/pyspark-mysql-smoke.py > /tmp/pyspark-mysql-jdbc-test.log 2>&1; status=\$?; cat /tmp/pyspark-mysql-jdbc-test.log; [ \$status -eq 0 ] && grep -q \"PYSPARK_MYSQL_JDBC_OK rows=3 age_sum=90 driver=com.mysql.jdbc.Driver\" /tmp/pyspark-mysql-jdbc-test.log'"
+
+    run_test "清理PySpark MySQL JDBC测试表" \
+        "docker exec infra mysql -uhive -phive hive_metastore -e 'DROP TABLE IF EXISTS spark_jdbc_test_person;' 2>/dev/null"
+
     docker exec master rm -f \
         /tmp/pyspark-smoke.py \
+        /tmp/pyspark-mysql-smoke.py \
         /tmp/pyspark-standalone-test.log \
-        /tmp/pyspark-yarn-test.log >/dev/null 2>&1 || true
+        /tmp/pyspark-yarn-test.log \
+        /tmp/pyspark-mysql-jdbc-test.log >/dev/null 2>&1 || true
 }
 
 # ===============================================
@@ -636,6 +659,9 @@ test_mysql() {
 
     run_test "MySQL hive_metastore 数据库存在" \
         "docker exec infra mysql -uroot -proot -e 'SHOW DATABASES;' 2>/dev/null | grep -q hive_metastore"
+
+    run_test "MySQL hive远程账号兼容Connector/J 5.1.49" \
+        "docker exec infra mysql -uroot -proot -Nse \"SELECT plugin FROM mysql.user WHERE user='hive' AND host='%';\" 2>/dev/null | grep -qx mysql_native_password"
 
     run_test "MySQL 创建测试表" \
         "docker exec infra mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS test_db; USE test_db; CREATE TABLE IF NOT EXISTS test_table (id INT PRIMARY KEY, name VARCHAR(50));' 2>/dev/null"

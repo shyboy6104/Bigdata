@@ -53,7 +53,7 @@ COMPONENTS = {
     "spark": {
         "label": "Spark",
         "subdir": "spark",
-        "files": ["spark-defaults.conf", "spark-env.sh", "slaves"],
+        "files": ["spark-defaults.conf", "spark-env.sh", "workers"],
     },
     "flink": {
         "label": "Flink",
@@ -146,7 +146,7 @@ def detect_file_type(filename):
         return "spark_conf"
     if ext in FILE_TYPE_MAP:
         return FILE_TYPE_MAP[ext]
-    if filename in ("workers", "regionservers", "slaves"):
+    if filename in ("workers", "regionservers"):
         return "plain_list"
     return "key_value"
 
@@ -575,7 +575,7 @@ ALL_FILE_TYPES = [
     ("shell", "Shell环境变量 (.sh)"),
     ("ini", "INI配置 (.cnf/.ini)"),
     ("yaml", "YAML配置 (.yaml/.yml)"),
-    ("plain_list", "列表配置 (workers/slaves等)"),
+    ("plain_list", "列表配置 (workers/regionservers等)"),
     ("plain_text", "纯文本文件 (自由编辑)"),
 ]
 
