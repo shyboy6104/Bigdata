@@ -22,6 +22,7 @@ services:
       - "7077:7077"  # Spark Master端口
       - "8080:8080"  # Spark Master Web UI
       - "18080:18080"  # Spark History Server
+      - "4040:4040"  # Spark Application UI（运行中应用的 Driver Web UI）
     expose:
       - "22"  # 仅供bigdata-net内部通过SSH批量管理Worker，不映射到宿主机
     networks:

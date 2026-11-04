@@ -48,3 +48,8 @@ node_modules/
 # 排除备份文件
 *.bak
 *.backup
+# 排除 WorkBuddy 工作区数据
+.workbuddy/
+
+# 排除项目打包文件
+Bigdata.zip

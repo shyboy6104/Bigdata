@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大数据平台管理器</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d26; --panel2: #1e2632; --border: #2a3340;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #3b82f6; --accent-h: #2563eb;
+    --green: #22c55e; --red: #ef4444; --amber: #f59e0b; --cyan: #06b6d4;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2f3b4a; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 12px 22px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    position: sticky; top: 0; z-index: 20; flex-wrap: wrap;
+  }
+  .logo { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; }
+  .logo .sub { font-size: 11.5px; color: var(--muted); font-weight: 400; margin-left: 2px; }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); }
+  .top-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); padding: 7px 13px; border-radius: 8px;
+    cursor: pointer; font-size: 13px; transition: .15s; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-h); color: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn.danger:hover { border-color: var(--red); background: rgba(239,68,68,.1); color: var(--red); }
+  .btn.sm { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .main { flex: 1; max-width: 1280px; margin: 0 auto; padding: 18px 22px 14px; width: 100%; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 13px 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .card:hover { border-color: #3a4655; }
+  .card.cluster { border-color: var(--accent); background: linear-gradient(180deg, rgba(59,130,246,.06), var(--panel)); }
+  .c-head { display: flex; align-items: center; gap: 9px; }
+  .c-title { font-weight: 650; font-size: 14.5px; }
+  .c-zh { color: var(--muted); font-size: 11.5px; margin-left: auto; text-align: right; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid transparent; }
+  .b-running { color: var(--green); background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); }
+  .b-stopped { color: var(--muted); background: rgba(139,152,169,.12); border-color: rgba(139,152,169,.3); }
+  .b-unknown { color: var(--red); background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); }
+  .c-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .group-label { font-size: 10.5px; color: var(--muted); width: 100%; margin-top: 3px; text-transform: uppercase; letter-spacing: .5px; }
+
+  .c-containers { display: flex; flex-direction: column; gap: 4px; }
+  .ctr-row {
+    display: flex; align-items: center; gap: 8px; padding: 4px 9px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 7px;
+  }
+  .ctr-name { font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px; font-weight: 600; }
+  .ctr-state { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ctr-state.up { color: var(--green); }
+  .ctr-actions { margin-left: auto; display: flex; gap: 5px; }
+  .btn.term { color: var(--cyan); border-color: rgba(6,182,212,.35); }
+  .btn.term:hover { background: rgba(6,182,212,.12); border-color: var(--cyan); color: var(--cyan); }
+
+  .console {
+    margin-top: 16px; background: #0a0d11; border: 1px solid var(--border); border-radius: var(--radius);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .console-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .console-head .title { font-weight: 600; font-size: 13px; }
+  .console-head .spinner { display: none; width: 13px; height: 13px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  .console-head .spinner.on { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .console-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  pre.log {
+    padding: 12px 14px; font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px;
+    white-space: pre-wrap; word-break: break-all; overflow: auto; max-height: 38vh; min-height: 120px;
+    color: #c9d4e0; line-height: 1.55;
+  }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .check input { width: auto; }
+
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    width: 100%; max-width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .modal-head h3 { font-size: 15px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .modal-body { padding: 16px 18px; font-size: 13.5px; }
+  .modal-foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  .hint { font-size: 11.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">🐘 大数据平台管理器 <span class="sub">bigdata-cli 网页版</span></div>
+  <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">检测中…</span></div>
+  <div class="top-actions">
+    <button class="btn" id="btnStatusAll">⟳ 刷新状态</button>
+    <button class="btn" id="btnBuildBase">构建基础镜像</button>
+    <button class="btn danger" id="btnCleanAll">清理全项目</button>
+    <button class="btn danger" id="btnCleanVol">清理悬空卷</button>
+    <button class="btn" id="btnDocker" title="前往通用 Docker 管理器">Docker ↗</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="grid" id="grid"></div>
+
+  <div class="console">
+    <div class="console-head">
+      <span class="title">命令输出</span>
+      <span class="spinner" id="busySpin"></span>
+      <div class="right">
+        <label class="check"><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+        <button class="btn sm" id="btnClear">清空</button>
+      </div>
+    </div>
+    <pre class="log" id="log"></pre>
+  </div>
+</div>
+
+<div class="modal-mask" id="confirmModal">
+  <div class="modal">
+    <div class="modal-head"><h3>确认操作</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body"><div id="confirmText"></div></div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn danger" id="confirmYes">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const API_BASE = (location.origin === 'http://127.0.0.1:8000') ? '' : 'http://127.0.0.1:8000';
+
+  const $ = (s) => document.querySelector(s);
+
+  const COMPS = [
+    { key: 'hadoop', label: 'Hadoop', zh: '标准集群' },
+    { key: 'hadoop-ha', label: 'Hadoop HA', zh: '高可用集群' },
+    { key: 'zookeeper', label: 'ZooKeeper', zh: '协调服务' },
+    { key: 'hbase', label: 'HBase', zh: '列式数据库' },
+    { key: 'hive', label: 'Hive', zh: '数据仓库' },
+    { key: 'kafka', label: 'Kafka', zh: '消息队列' },
+    { key: 'spark', label: 'Spark', zh: '计算引擎' },
+    { key: 'flink', label: 'Flink', zh: '流计算' },
+    { key: 'flume', label: 'Flume', zh: '日志采集' },
+    { key: 'mysql', label: 'MySQL', zh: '关系数据库' },
+  ];
+  const CLUSTER = { key: 'all', label: '全栈集群', zh: '5 节点' };
+
+  const statusMap = {}; // key -> 'running' | 'stopped' | 'unknown'
+  const containersMap = {}; // key -> [{name,id,service,state,status}]
+  let busy = false;
+
+  async function getJSON(path) { const r = await fetch(API_BASE + path); return r.json(); }
+  async function postJSON(path, body) {
+    const r = await fetch(API_BASE + path, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.json();
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  function append(text) {
+    const log = $('#log');
+    log.textContent += text;
+    if ($('#autoScroll').checked) log.scrollTop = log.scrollHeight;
+  }
+
+  function setBusy(on) { busy = on; $('#busySpin').className = 'spinner' + (on ? ' on' : ''); }
+
+  function badge(state) {
+    if (state === 'running') return '<span class="badge b-running">运行中</span>';
+    if (state === 'stopped') return '<span class="badge b-stopped">未运行</span>';
+    return '<span class="badge b-unknown">未知</span>';
+  }
+
+  function buildActions(comp, arch) {
+    const key = comp.key;
+    const lifecycle = ['start','stop','restart','destroy','clean'];
+    const obs = ['status','logs','test'];
+    const labels = { start:'启动', stop:'停止', restart:'重启', destroy:'销毁', clean:'清理',
+                     status:'状态', logs:'日志', test:'测试', build:'构建镜像', delete:'删镜像', supervisor:'Supervisor' };
+    const mk = (op, cls) => '<button class="btn sm ' + (cls || '') + '" data-op="' + op +
+      '" data-comp="' + key + '" data-arch="' + arch + '">' + labels[op] + '</button>';
+    let html = '<div class="c-actions">';
+    html += '<span class="group-label">生命周期</span>';
+    lifecycle.forEach((op) => html += mk(op, (op === 'destroy' || op === 'clean') ? 'danger' : ''));
+    html += '<span class="group-label">监控与测试</span>';
+    obs.forEach((op) => html += mk(op));
+    if (arch === 'multi') html += mk('supervisor');
+    html += '<span class="group-label">镜像</span>';
+    html += mk('build') + mk('delete', 'danger');
+    html += '</div>';
+    return html;
+  }
+
+  function buildContainers(comp) {
+    const list = containersMap[comp.key] || [];
+    if (!list.length) return '';
+    let html = '<div class="c-containers"><span class="group-label">容器</span>';
+    list.forEach((ct) => {
+      const up = ct.state === 'running';
+      html += '<div class="ctr-row">' +
+        '<span class="ctr-name">' + esc(ct.name) + '</span>' +
+        '<span class="ctr-state ' + (up ? 'up' : '') + '">' + (up ? '● ' : '○ ') + esc(ct.status || ct.state) + '</span>' +
+        '<span class="ctr-actions">' +
+        (up ? '<button class="btn sm term" data-term="' + esc(ct.name) + '" title="在新命令行窗口执行 docker exec -it ' + esc(ct.name) + ' bash">终端</button>' : '') +
+        '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function renderGrid() {
+    const grid = $('#grid');
+    let html = '';
+    COMPS.forEach((c) => {
+      const key = c.key, st = statusMap[key];
+      html += '<div class="card">' +
+        '<div class="c-head"><span class="c-title">' + esc(c.label) + '</span>' + badge(st) +
+          '<span class="c-zh">' + esc(c.zh) + '</span></div>' +
+        buildActions(c, 'single') +
+        buildContainers(c) +
+      '</div>';
+    });
+    html += '<div class="card cluster">' +
+      '<div class="c-head"><span class="c-title">' + esc(CLUSTER.label) + '</span>' +
+        badge(statusMap[CLUSTER.key]) + '<span class="c-zh">' + esc(CLUSTER.zh) + '</span></div>' +
+      buildActions(CLUSTER, 'multi') +
+      buildContainers(CLUSTER) +
+    '</div>';
+    grid.innerHTML = html;
+  }
+
+  async function refreshStatus() {
+    setStatus(true, '已连接');
+    await Promise.all(
+      COMPS.map((c) => getJSON('/api/bigdata/status?component=' + c.key + '&arch=single')
+        .then((r) => {
+          statusMap[c.key] = r.running ? 'running' : (r.ok ? 'stopped' : 'unknown');
+          containersMap[c.key] = r.containers || [];
+        })
+        .catch(() => { statusMap[c.key] = 'unknown'; containersMap[c.key] = []; }))
+        .concat([
+          getJSON('/api/bigdata/status?component=all&arch=multi')
+            .then((r) => {
+              statusMap[CLUSTER.key] = r.running ? 'running' : (r.ok ? 'stopped' : 'unknown');
+              containersMap[CLUSTER.key] = r.containers || [];
+            })
+            .catch(() => { statusMap[CLUSTER.key] = 'unknown'; containersMap[CLUSTER.key] = []; })
+        ])
+    );
+    renderGrid();
+  }
+
+  function setStatus(on, text) {
+    $('#statusDot').className = 'dot ' + (on ? 'on' : 'off');
+    $('#statusText').textContent = text;
+  }
+
+  // ---- 操作执行 + 流式输出 ----
+  async function exec(op, comp, arch) {
+    if (busy) { append('[提示] 已有任务在执行中，请稍候…\n'); return; }
+    append('\n================================================\n');
+    append('>>> ' + opName(op) + ' | 组件=' + comp + ' | 架构=' + arch + '\n');
+    setBusy(true);
+    try {
+      const r = await postJSON('/api/bigdata/exec', { op, component: comp, arch });
+      if (!r.ok) { append('[ERROR] ' + (r.error || '启动失败') + '\n'); return; }
+      let offset = 0;
+      while (true) {
+        const t = await getJSON('/api/bigdata/task/' + r.task_id).catch(() => null);
+        if (!t) { append('[ERROR] 无法获取任务状态\n'); break; }
+        const full = t.output || '';
+        if (full.length > offset) { append(full.slice(offset)); offset = full.length; }
+        if (!t.running) {
+          append('\n[完成] 退出码 ' + t.code + (t.code === 0 ? ' ✓' : ' ✗') + '\n');
+          break;
+        }
+        await sleep(700);
+      }
+    } catch (e) {
+      append('[ERROR] ' + (e && e.message ? e.message : e) + '\n');
+    } finally {
+      setBusy(false);
+      refreshStatus();
+    }
+  }
+
+  function opName(op) {
+    const m = { start:'启动', stop:'停止', restart:'重启', destroy:'销毁', clean:'清理(-v)',
+      status:'查看状态', logs:'查看日志', test:'功能测试', build:'构建镜像', delete:'删除镜像',
+      supervisor:'Supervisor 状态', 'build-base':'构建基础镜像', 'clean-all':'清理全项目', 'clean-volumes':'清理悬空卷' };
+    return m[op] || op;
+  }
+
+  // ---- 确认框 ----
+  let confirmCb = null;
+  function confirmDo(html, cb) {
+    $('#confirmText').innerHTML = html;
+    confirmCb = cb;
+    $('#confirmModal').classList.add('show');
+  }
+  $('#confirmYes').addEventListener('click', async () => {
+    $('#confirmModal').classList.remove('show');
+    if (confirmCb) await confirmCb();
+  });
+  document.querySelectorAll('#confirmModal .modal-close').forEach((b) =>
+    b.addEventListener('click', () => $('#confirmModal').classList.remove('show')));
+
+  // ---- 打开容器命令行 ----
+  async function execShell(container) {
+    append('\n================================================\n');
+    append('>>> 打开命令行 | 容器=' + container + '（在新窗口执行 docker exec -it ' + container + ' bash）\n');
+    try {
+      const r = await postJSON('/api/bigdata/exec-shell', { container, shell: 'bash' });
+      if (r.ok) append('[成功] ' + (r.output || '已打开终端窗口') + '\n');
+      else append('[ERROR] ' + (r.error || '打开失败') + '\n');
+    } catch (e) {
+      append('[ERROR] ' + (e && e.message ? e.message : e) + '\n');
+    }
+  }
+
+  // ---- 事件 ----
+  $('#grid').addEventListener('click', (e) => {
+    const tb = e.target.closest('button[data-term]');
+    if (tb) { execShell(tb.dataset.term); return; }
+    const b = e.target.closest('button[data-op]');
+    if (!b) return;
+    const op = b.dataset.op, comp = b.dataset.comp, arch = b.dataset.arch;
+    const label = b.textContent.trim();
+    const dangerous = ['destroy', 'clean', 'delete'].includes(op);
+    if (op === 'status') {
+      getJSON('/api/bigdata/status?component=' + comp + '&arch=' + arch).then((r) => {
+        append('\n===== ' + label + ' · ' + comp + ' =====\n' + (r.output || '(无输出)') + '\n');
+      });
+      return;
+    }
+    if (dangerous) {
+      const compLabel = (comp === 'all' ? '全栈集群' : comp) + ' (' + arch + ')';
+      confirmDo('确定对 <b>' + esc(compLabel) + '</b> 执行「' + esc(label) + '」吗？<br>' +
+        '<span class="hint">' + dangerHint(op) + '</span>',
+        () => exec(op, comp, arch));
+      return;
+    }
+    exec(op, comp, arch);
+  });
+
+  function dangerHint(op) {
+    if (op === 'destroy') return '销毁：docker compose down（保留卷）';
+    if (op === 'clean') return '清理：docker compose down -v（同时删除关联卷）';
+    if (op === 'delete') return '删除：docker image rm（删除该组件镜像）';
+    return '';
+  }
+
+  $('#btnStatusAll').addEventListener('click', refreshStatus);
+  $('#btnClear').addEventListener('click', () => { $('#log').textContent = ''; });
+  $('#btnDocker').addEventListener('click', () => { location.href = API_BASE + '/'; });
+  $('#btnBuildBase').addEventListener('click', () => exec('build-base', 'all', 'single'));
+
+  $('#btnCleanAll').addEventListener('click', () =>
+    confirmDo('确定要<b>清理全项目</b>吗？将删除所有组件的容器、Compose 网络及关联卷（镜像与宿主机数据不会被删）。',
+      () => exec('clean-all', 'all', 'single')));
+
+  $('#btnCleanVol').addEventListener('click', () =>
+    confirmDo('确定要清理系统中<b>所有悬空卷</b>吗？', () => exec('clean-volumes', 'all', 'single')));
+
+  // ---- 初始化 ----
+  renderGrid();
+  refreshStatus().then(() => append('就绪。点击组件卡片上的按钮即可执行对应操作，输出显示在此控制台。\n'));
+  setInterval(refreshStatus, 20000); // 每 20 秒刷新状态
+})();
+</script>
+</body>
+</html>

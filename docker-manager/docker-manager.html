@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docker 管理器</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #171d26;
+    --panel2: #1e2632;
+    --border: #2a3340;
+    --text: #e6edf3;
+    --muted: #8b98a9;
+    --accent: #3b82f6;
+    --accent-h: #2563eb;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --cyan: #06b6d4;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2f3b4a; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px; border-bottom: 1px solid var(--border);
+    background: var(--panel); position: sticky; top: 0; z-index: 20;
+    flex-wrap: wrap;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; }
+  .logo svg { width: 26px; height: 26px; }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); }
+  .stats { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+  .stat {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 12px; font-size: 12.5px; color: var(--muted);
+  }
+  .stat b { color: var(--text); font-weight: 600; margin-left: 4px; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 10px 18px; cursor: pointer; color: var(--muted); font-weight: 600;
+    border-bottom: 2px solid transparent; transition: .15s; background: none; border-top: none;
+    border-left: none; border-right: none; font-size: 14px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .toolbar input[type=text] {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 12px; font-size: 13.5px; width: 240px; outline: none;
+  }
+  .toolbar input[type=text]:focus { border-color: var(--accent); }
+  .seg { display: flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    background: transparent; border: none; color: var(--muted); padding: 8px 14px; cursor: pointer; font-size: 13px;
+  }
+  .seg button.active { background: var(--accent); color: #fff; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); padding: 8px 14px; border-radius: 8px;
+    cursor: pointer; font-size: 13.5px; transition: .15s; font-family: inherit;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-h); color: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn.danger:hover { border-color: var(--red); background: rgba(239,68,68,.1); }
+  .btn.sm { padding: 4px 10px; font-size: 12.5px; border-radius: 6px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .cards { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .card:hover { border-color: #3a4655; }
+  .c-main { min-width: 200px; flex: 1; }
+  .c-name { font-weight: 650; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+  .c-image { color: var(--muted); font-size: 12.5px; margin-top: 3px; font-family: Consolas, Menlo, monospace; }
+  .c-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .b-running { color: var(--green); background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); }
+  .b-exited { color: var(--muted); background: rgba(139,152,169,.12); border-color: rgba(139,152,169,.3); }
+  .b-created { color: var(--cyan); background: rgba(6,182,212,.12); border-color: rgba(6,182,212,.3); }
+  .b-restarting, .b-paused { color: var(--amber); background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.3); }
+  .b-dead, .b-removing { color: var(--red); background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); }
+  .c-ports { color: var(--muted); font-size: 12px; font-family: Consolas, Menlo, monospace; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .mono { font-family: Consolas, Menlo, monospace; }
+  .empty { text-align: center; color: var(--muted); padding: 50px 0; }
+  .id-chip { color: var(--muted); font-family: Consolas, monospace; font-size: 12px; }
+
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    width: 100%; max-width: 640px; max-height: 88vh; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal.wide { max-width: 860px; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .modal-head h3 { font-size: 16px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 18px 20px; overflow: auto; }
+  .modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+  .field input, .field select {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 12px; font-size: 13.5px; outline: none; font-family: inherit;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .list-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .list-row input { flex: 1; }
+  .list-row .btn { flex-shrink: 0; }
+  .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; cursor: pointer; }
+  .check input { width: auto; }
+
+  pre.logs {
+    background: #0a0d11; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-family: Consolas, Menlo, monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-all; max-height: 46vh; overflow: auto; color: #c9d4e0;
+  }
+  pre.inspect { font-size: 12px; color: #c9d4e0; }
+
+  .toast-wrap { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--panel2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; max-width: 360px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: slidein .2s ease;
+  }
+  .toast.err { border-left-color: var(--red); }
+  .toast.ok { border-left-color: var(--green); }
+  @keyframes slidein { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="#3b82f6"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2c.9 0 1.75.15 2.55.42-.7.6-1.25 1.5-1.55 2.58-.3 1.1-.35 2.3-.15 3.5H9.15c.2-1.2.15-2.4-.15-3.5-.3-1.08-.85-1.98-1.55-2.58A8 8 0 0 1 12 4zm-6.9 2.42c.55.9 1.45 1.6 2.6 1.98.4 1.4.95 2.7 1.65 3.9H5.5a8 8 0 0 1-.4-5.88zM12 20a8 8 0 0 1-6.9-4h13.8A8 8 0 0 1 12 20zm-6.5-6h3.85c-.7 1.2-1.25 2.5-1.65 3.9-1.15.38-2.05 1.08-2.6 1.98a8 8 0 0 1 .4-5.88zM12 6.58c.45 1 .8 2.1 1.05 3.22H10.95c.25-1.12.6-2.22 1.05-3.22z"/></svg>
+    Docker 管理器
+  </div>
+  <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">检测中…</span></div>
+  <div class="stats">
+    <div class="stat">引擎<span><b id="statVer">-</b></span></div>
+    <div class="stat">容器<span><b id="statContainers">-</b></span></div>
+    <div class="stat">镜像<span><b id="statImages">-</b></span></div>
+  </div>
+  <a class="btn" id="linkBigdata" href="/bigdata" title="打开大数据平台管理页面" style="text-decoration:none; color:var(--cyan);">📊 大数据平台</a>
+  <button class="btn" id="btnRefresh" title="刷新"><span id="refreshIcon">⟳</span> 刷新</button>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" data-tab="containers">容器</button>
+    <button class="tab" data-tab="images">镜像</button>
+  </div>
+
+  <!-- 容器视图 -->
+  <div id="view-containers">
+    <div class="toolbar">
+      <input type="text" id="searchContainer" placeholder="搜索名称 / 镜像…">
+      <div class="seg" id="statusSeg">
+        <button class="active" data-s="">全部</button>
+        <button data-s="running">运行中</button>
+        <button data-s="exited">已停止</button>
+      </div>
+      <button class="btn primary" id="btnRun">＋ 创建 / 运行容器</button>
+    </div>
+    <div class="cards" id="containerList"><div class="loading"><span class="spinner"></span> 加载中…</div></div>
+  </div>
+
+  <!-- 镜像视图 -->
+  <div id="view-images" style="display:none">
+    <div class="toolbar">
+      <input type="text" id="searchImage" placeholder="搜索仓库 / 标签…">
+      <button class="btn primary" id="btnPull">↓ 拉取镜像</button>
+    </div>
+    <div class="cards" id="imageList"><div class="loading"><span class="spinner"></span> 加载中…</div></div>
+  </div>
+</div>
+
+<!-- 创建/运行容器弹窗 -->
+<div class="modal-mask" id="runModal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="runTitle">创建 / 运行容器</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>镜像 *</label><input id="runImage" placeholder="如 nginx:latest、mysql:8.0"></div>
+      <div class="row2">
+        <div class="field"><label>容器名称</label><input id="runName" placeholder="可选"></div>
+        <div class="field"><label>重启策略</label>
+          <select id="runRestart">
+            <option value="">no（默认）</option>
+            <option value="always">always</option>
+            <option value="unless-stopped">unless-stopped</option>
+            <option value="on-failure">on-failure</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>端口映射（宿主机:容器，如 8080:80）</label>
+        <div id="portList"></div>
+        <button class="btn sm" id="addPort">＋ 添加端口</button>
+      </div>
+      <div class="field"><label>环境变量（KEY=VALUE）</label>
+        <div id="envList"></div>
+        <button class="btn sm" id="addEnv">＋ 添加变量</button>
+      </div>
+      <div class="field"><label>卷挂载（宿主机:容器）</label>
+        <div id="volList"></div>
+        <button class="btn sm" id="addVol">＋ 添加挂载</button>
+      </div>
+      <div class="row2">
+        <div class="field"><label>网络</label><input id="runNetwork" placeholder="如 bridge / host"></div>
+        <div class="field"><label>主机名</label><input id="runHostname" placeholder="可选"></div>
+      </div>
+      <div class="field"><label>启动命令（覆盖镜像默认 CMD）</label><input id="runCommand" placeholder="可选"></div>
+      <div class="field"><label class="check"><input type="checkbox" id="runCreateOnly"> 仅创建容器，不启动（docker create）</label></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn primary" id="runSubmit">创建并启动</button>
+    </div>
+  </div>
+</div>
+
+<!-- 拉取镜像弹窗 -->
+<div class="modal-mask" id="pullModal">
+  <div class="modal">
+    <div class="modal-head"><h3>拉取镜像</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>镜像名 *</label><input id="pullRef" placeholder="如 ubuntu:22.04、ghcr.io/xxx/img:tag"></div>
+      <div class="hint">拉取大镜像可能需要较长时间，请耐心等待。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn primary" id="pullSubmit">拉取</button>
+    </div>
+  </div>
+</div>
+
+<!-- 日志弹窗 -->
+<div class="modal-mask" id="logModal">
+  <div class="modal wide">
+    <div class="modal-head"><h3 id="logTitle">容器日志</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="toolbar" style="margin-bottom:10px">
+        <label class="check"><input type="checkbox" id="logFollow"> 自动刷新</label>
+        <button class="btn sm" id="logRefresh">刷新</button>
+      </div>
+      <pre class="logs" id="logContent">加载中…</pre>
+    </div>
+    <div class="modal-foot"><button class="btn" data-close>关闭</button></div>
+  </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal-mask" id="inspectModal">
+  <div class="modal wide">
+    <div class="modal-head"><h3>容器详情</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body"><pre class="logs inspect" id="inspectContent">加载中…</pre></div>
+    <div class="modal-foot"><button class="btn" data-close>关闭</button></div>
+  </div>
+</div>
+
+<!-- 确认弹窗 -->
+<div class="modal-mask" id="confirmModal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-head"><h3>确认操作</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body"><div id="confirmText" style="font-size:14px"></div></div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn danger" id="confirmYes">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+(function () {
+  const API_BASE = (location.origin === 'http://127.0.0.1:8000') ? '' : 'http://127.0.0.1:8000';
+
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+  let state = { containers: [], images: [], filterStatus: '', searchC: '', searchI: '' };
+  let logTimer = null;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  async function api(path, body) {
+    const opt = body === undefined ? {} : {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    };
+    const r = await fetch(API_BASE + '/api/' + path, opt);
+    return r.json();
+  }
+
+  function toast(msg, type) {
+    const el = document.createElement('div');
+    el.className = 'toast ' + (type || '');
+    el.textContent = msg;
+    $('#toasts').appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  function setStatus(on, text) {
+    $('#statusDot').className = 'dot ' + (on ? 'on' : 'off');
+    $('#statusText').textContent = text;
+  }
+
+  async function refreshAll() {
+    $('#refreshIcon').textContent = '⟳';
+    const ping = await api('ping').catch(() => ({ ok: false }));
+    if (!ping.ok) {
+      setStatus(false, '未连接（请先启动 docker-relay.py）');
+      $('#containerList').innerHTML = '<div class="empty">无法连接本地转发脚本。<br>请先运行：<span class="mono">python docker-relay.py</span> 或直接打开 http://127.0.0.1:8000</div>';
+      $('#imageList').innerHTML = '<div class="empty">同上</div>';
+      return;
+    }
+    setStatus(true, '已连接 · Docker ' + ping.serverVersion);
+    $('#statVer').textContent = ping.serverVersion;
+    const [c, im] = await Promise.all([api('containers'), api('images')]);
+    if (c.ok) state.containers = c.containers || [];
+    if (im.ok) state.images = im.images || [];
+    $('#statContainers').textContent = state.containers.length;
+    $('#statImages').textContent = state.images.length;
+    renderContainers();
+    renderImages();
+  }
+
+  function stateBadge(s) {
+    const map = { running: 'b-running', exited: 'b-exited', created: 'b-created', restarting: 'b-restarting', paused: 'b-paused', dead: 'b-dead', removing: 'b-dead' };
+    const label = { running: '运行中', exited: '已停止', created: '已创建', restarting: '重启中', paused: '已暂停', dead: '异常' };
+    return '<span class="badge ' + (map[s] || '') + '">' + (label[s] || esc(s)) + '</span>';
+  }
+
+  function renderContainers() {
+    const list = $('#containerList');
+    let arr = state.containers.filter((c) => {
+      if (state.filterStatus && c.state !== state.filterStatus) return false;
+      if (state.searchC) {
+        const q = state.searchC.toLowerCase();
+        if (!(c.name + ' ' + c.image).toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+    if (!arr.length) { list.innerHTML = '<div class="empty">暂无容器</div>'; return; }
+    list.innerHTML = arr.map((c) => {
+      const running = c.state === 'running';
+      const btn = running
+        ? '<button class="btn sm" data-act="stop" data-id="' + c.id + '">停止</button>' +
+          '<button class="btn sm" data-act="restart" data-id="' + c.id + '">重启</button>'
+        : '<button class="btn sm" data-act="start" data-id="' + c.id + '">启动</button>';
+      return '<div class="card">' +
+        '<div class="c-main">' +
+          '<div class="c-name">' + stateBadge(c.state) + ' ' + esc(c.name) +
+            ' <span class="id-chip">' + esc(c.id.slice(0, 12)) + '</span></div>' +
+          '<div class="c-image">' + esc(c.image) + '</div>' +
+          '<div class="c-sub">' + esc(c.status) + '</div>' +
+        '</div>' +
+        '<div class="c-ports">' + esc(c.ports || '—') + '</div>' +
+        '<div class="c-actions">' +
+          btn +
+          '<button class="btn sm" data-act="logs" data-id="' + c.id + '" data-name="' + esc(c.name) + '">日志</button>' +
+          '<button class="btn sm" data-act="inspect" data-id="' + c.id + '" data-name="' + esc(c.name) + '">详情</button>' +
+          '<button class="btn sm danger" data-act="remove" data-id="' + c.id + '" data-name="' + esc(c.name) + '">删除</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderImages() {
+    const list = $('#imageList');
+    let arr = state.images.filter((im) => {
+      if (state.searchI) {
+        const q = state.searchI.toLowerCase();
+        if (!(im.repo + ':' + im.tag).toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+    if (!arr.length) { list.innerHTML = '<div class="empty">暂无镜像</div>'; return; }
+    list.innerHTML = arr.map((im) => {
+      const full = im.repo === '<none>' ? im.id.slice(0, 12) : im.repo + ':' + im.tag;
+      return '<div class="card">' +
+        '<div class="c-main">' +
+          '<div class="c-name">' + esc(im.repo) + ' <span class="id-chip">:' + esc(im.tag) + '</span></div>' +
+          '<div class="c-sub">' + esc(im.id.slice(7, 19)) + ' · ' + esc(im.created) + '</div>' +
+        '</div>' +
+        '<div class="c-sub" style="min-width:80px">' + esc(im.size) + '</div>' +
+        '<div class="c-actions">' +
+          '<button class="btn sm primary" data-imagerun="' + esc(full) + '">运行</button>' +
+          '<button class="btn sm danger" data-imagerm="' + esc(im.id) + '" data-name="' + esc(full) + '">删除</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // ---- 事件绑定 ----
+  $$('.tab').forEach((t) => t.addEventListener('click', () => {
+    $$('.tab').forEach((x) => x.classList.remove('active'));
+    t.classList.add('active');
+    const tab = t.dataset.tab;
+    $('#view-containers').style.display = tab === 'containers' ? 'block' : 'none';
+    $('#view-images').style.display = tab === 'images' ? 'block' : 'none';
+  }));
+
+  $('#statusSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('#statusSeg button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    state.filterStatus = b.dataset.s || '';
+    renderContainers();
+  });
+
+  $('#searchContainer').addEventListener('input', (e) => { state.searchC = e.target.value; renderContainers(); });
+  $('#searchImage').addEventListener('input', (e) => { state.searchI = e.target.value; renderImages(); });
+  $('#btnRefresh').addEventListener('click', () => { $('#refreshIcon').textContent = '…'; refreshAll(); });
+
+  // 大数据平台跳转链接（兼容同源 / 跨域静态预览两种打开方式）
+  $('#linkBigdata').href = API_BASE + '/bigdata';
+
+  // 容器动作
+  $('#containerList').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const act = b.dataset.act, id = b.dataset.id, name = b.dataset.name || id.slice(0, 12);
+    if (act === 'logs') { openLogs(id, name); return; }
+    if (act === 'inspect') { openInspect(id); return; }
+    if (act === 'remove') {
+      confirmDo('确定删除容器 <b>' + esc(name) + '</b> 吗？（已停止容器直接删，运行中需勾选强制）',
+        () => api('remove', { id, force: true }), true);
+      return;
+    }
+    const r = await api(act, { id });
+    if (r.ok) { toast('已对 ' + name + ' 执行「' + act + '」', 'ok'); } else { toast(r.error || '操作失败', 'err'); }
+    refreshAll();
+  });
+
+  // 镜像动作
+  $('#imageList').addEventListener('click', async (e) => {
+    const runBtn = e.target.closest('button[data-imagerun]');
+    if (runBtn) { openRun(runBtn.dataset.imagerun); return; }
+    const rm = e.target.closest('button[data-imagerm]');
+    if (rm) {
+      confirmDo('确定删除镜像 <b>' + esc(rm.dataset.name) + '</b> 吗？', () => api('imageremove', { id: rm.dataset.id, force: true }), true);
+    }
+  });
+
+  // ---- 弹窗通用 ----
+  $$('.modal-close').forEach((b) => b.addEventListener('click', () => b.closest('.modal-mask').classList.remove('show')));
+  $$('.modal-mask').forEach((m) => m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('show'); }));
+
+  let confirmCb = null;
+  function confirmDo(html, cb, refreshAfter) {
+    $('#confirmText').innerHTML = html;
+    confirmCb = async () => {
+      const r = await cb();
+      if (r && r.ok) { toast('操作成功', 'ok'); if (refreshAfter) refreshAll(); }
+      else if (r) { toast(r.error || '操作失败', 'err'); }
+    };
+    $('#confirmModal').classList.add('show');
+  }
+  $('#confirmYes').addEventListener('click', async () => {
+    $('#confirmModal').classList.remove('show');
+    if (confirmCb) await confirmCb();
+  });
+
+  // ---- 创建/运行 ----
+  function addRow(container, placeholder) {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+    row.innerHTML = '<input placeholder="' + placeholder + '"><button class="btn sm danger">×</button>';
+    row.querySelector('button').addEventListener('click', () => row.remove());
+    container.appendChild(row);
+  }
+  function collectRows(container) {
+    return Array.from(container.querySelectorAll('input')).map((i) => i.value.trim()).filter(Boolean);
+  }
+  $('#addPort').addEventListener('click', () => addRow($('#portList'), '如 8080:80 或 3306:3306/tcp'));
+  $('#addEnv').addEventListener('click', () => addRow($('#envList'), '如 MYSQL_ROOT_PASSWORD=123456'));
+  $('#addVol').addEventListener('click', () => addRow($('#volList'), '如 /data:/var/lib/mysql'));
+
+  function openRun(prefillImage) {
+    $('#runImage').value = prefillImage || '';
+    $('#runName').value = ''; $('#runNetwork').value = ''; $('#runHostname').value = '';
+    $('#runCommand').value = ''; $('#runRestart').value = ''; $('#runCreateOnly').checked = false;
+    $('#portList').innerHTML = ''; $('#envList').innerHTML = ''; $('#volList').innerHTML = '';
+    addRow($('#portList'), '如 8080:80');
+    addRow($('#envList'), '如 KEY=VALUE');
+    addRow($('#volList'), '如 /host:/container');
+    $('#runModal').classList.add('show');
+  }
+  $('#btnRun').addEventListener('click', () => openRun(''));
+
+  $('#runSubmit').addEventListener('click', async () => {
+    const payload = {
+      image: $('#runImage').value,
+      name: $('#runName').value,
+      restart: $('#runRestart').value,
+      ports: collectRows($('#portList')),
+      env: collectRows($('#envList')),
+      volumes: collectRows($('#volList')),
+      network: $('#runNetwork').value,
+      hostname: $('#runHostname').value,
+      command: $('#runCommand').value,
+      createOnly: $('#runCreateOnly').checked,
+    };
+    if (!payload.image.trim()) { toast('请填写镜像名', 'err'); return; }
+    $('#runSubmit').disabled = true; $('#runSubmit').textContent = '执行中…';
+    const r = await api('run', payload);
+    $('#runSubmit').disabled = false; $('#runSubmit').textContent = '创建并启动';
+    if (r.ok) {
+      toast('成功！' + (r.output ? ' ID: ' + r.output : ''), 'ok');
+      $('#runModal').classList.remove('show');
+      refreshAll();
+    } else { toast(r.error || '创建失败', 'err'); }
+  });
+
+  // ---- 拉取 ----
+  $('#btnPull').addEventListener('click', () => { $('#pullRef').value = ''; $('#pullModal').classList.add('show'); });
+  $('#pullSubmit').addEventListener('click', async () => {
+    const ref = $('#pullRef').value.trim();
+    if (!ref) { toast('请填写镜像名', 'err'); return; }
+    $('#pullSubmit').disabled = true; $('#pullSubmit').textContent = '拉取中…';
+    toast('正在拉取 ' + ref + '，请稍候…');
+    const r = await api('pull', { ref });
+    $('#pullSubmit').disabled = false; $('#pullSubmit').textContent = '拉取';
+    if (r.ok) { toast('拉取完成', 'ok'); $('#pullModal').classList.remove('show'); refreshAll(); }
+    else { toast(r.error || '拉取失败', 'err'); }
+  });
+
+  // ---- 日志 ----
+  let currentLogId = null;
+  async function openLogs(id, name) {
+    currentLogId = id;
+    $('#logTitle').textContent = '日志 · ' + name;
+    $('#logModal').classList.add('show');
+    await loadLogs();
+  }
+  async function loadLogs() {
+    if (!currentLogId) return;
+    $('#logContent').textContent = '加载中…';
+    const r = await api('logs', { id: currentLogId, tail: 300 });
+    $('#logContent').textContent = r.ok ? (r.logs || '(无日志)') : (r.error || '读取失败');
+  }
+  $('#logRefresh').addEventListener('click', loadLogs);
+  $('#logFollow').addEventListener('change', (e) => {
+    if (e.target.checked) { logTimer = setInterval(loadLogs, 3000); }
+    else { clearInterval(logTimer); logTimer = null; }
+  });
+  $('#logModal .modal-close').addEventListener('click', () => { clearInterval(logTimer); logTimer = null; });
+
+  // ---- 详情 ----
+  async function openInspect(id) {
+    $('#inspectModal').classList.add('show');
+    $('#inspectContent').textContent = '加载中…';
+    const r = await api('inspect', { id });
+    if (r.ok && typeof r.data === 'object') $('#inspectContent').textContent = JSON.stringify(r.data, null, 2);
+    else $('#inspectContent').textContent = (r.error || '读取失败');
+  }
+
+  // 初始化
+  refreshAll();
+  setInterval(refreshAll, 15000); // 每 15 秒自动刷新
+})();
+</script>
+</body>
+</html>
