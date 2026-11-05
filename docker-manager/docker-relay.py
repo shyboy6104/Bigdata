@@ -18,13 +18,20 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+# 端口：python docker-relay.py [端口] [主机]
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+# 主机：默认 127.0.0.1（仅本机）；用 0.0.0.0 监听局域网。也可用环境变量 RELAY_HOST 覆盖。
+HOST = os.environ.get("RELAY_HOST") or (sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1")
+# 访问令牌：可选。设置后所有 /api/ 与页面请求都需带 ?token=xxx 或头 X-Relay-Token。
+# 用环境变量 RELAY_TOKEN 传入；不设则不校验（仅信任本机/可信局域网时使用）。
+TOKEN = os.environ.get("RELAY_TOKEN") or ""
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(HERE, "docker-manager.html")
 BIGDATA_INDEX = os.path.join(HERE, "bigdata-manager.html")
@@ -55,6 +62,29 @@ def parse_ndjson(text):
             except Exception:
                 pass
     return out
+
+
+def get_lan_ips():
+    """返回本机所有 IPv4 地址（用于绑定 0.0.0.0 时提示局域网访问 URL）。"""
+    ips = []
+    try:
+        host = socket.gethostname()
+        for info in socket.getaddrinfo(host, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip not in ips and not ip.startswith("127."):
+                ips.append(ip)
+    except Exception:
+        pass
+    # 兜底：用 UDP connect 取主 IP
+    if not ips:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ips.append(s.getsockname()[0])
+            s.close()
+        except Exception:
+            pass
+    return ips
 
 
 # ============================================================
@@ -549,6 +579,16 @@ ROUTES = {
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _auth_ok(self):
+        """未设置 TOKEN 时一律放行；设置后要求请求带 ?token= 或 X-Relay-Token 头。"""
+        if not TOKEN:
+            return True
+        t = self.headers.get("X-Relay-Token", "")
+        if not t:
+            qs = parse_qs(urlparse(self.path).query)
+            t = (qs.get("token") or [""])[0]
+        return t == TOKEN
+
     def _send(self, code, obj):
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -579,6 +619,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if not self._auth_ok():
+            return self._send(401, {"ok": False, "error": "未授权：缺少或错误的 token"})
         u = urlparse(self.path)
         path = u.path
         qs = parse_qs(u.query)
@@ -611,6 +653,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        if not self._auth_ok():
+            return self._send(401, {"ok": False, "error": "未授权：缺少或错误的 token"})
         u = urlparse(self.path)
         path = u.path
 
@@ -671,11 +715,22 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print("Docker 管理器已启动： http://127.0.0.1:%d" % PORT)
-    print("大数据平台管理器： http://127.0.0.1:%d/bigdata" % PORT)
-    print("项目目录： %s" % PROJECT_DIR)
+    print("Docker 管理器已启动")
+    print("  本机：    http://127.0.0.1:%d" % PORT)
+    print("  大数据：  http://127.0.0.1:%d/bigdata" % PORT)
+    if HOST == "0.0.0.0":
+        print("  监听：    0.0.0.0（局域网可访问）")
+        for ip in get_lan_ips():
+            print("  局域网：  http://%s:%d   （大数据：/bigdata）" % (ip, PORT))
+        if not TOKEN:
+            print("  ⚠ 未设置 RELAY_TOKEN，局域网内任何人均可操作 Docker，建议设置访问令牌！")
+    else:
+        print("  监听：    %s（仅本机）" % HOST)
+    if TOKEN:
+        print("  访问令牌：已启用（页面请带 ?token=xxx，API 请带头 X-Relay-Token）")
+    print("  项目目录：%s" % PROJECT_DIR)
     print("按 Ctrl+C 停止")
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
