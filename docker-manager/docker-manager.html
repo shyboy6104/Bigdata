@@ -313,7 +313,11 @@
 
 <script>
 (function () {
-  const API_BASE = (location.origin === 'http://127.0.0.1:8000') ? '' : 'http://127.0.0.1:8000';
+  // 同源（relay 自身托管，含 127.0.0.1 与局域网 IP，端口 8000）时留空；否则指向本机 relay。
+  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  // 访问令牌：从 URL ?token= 读取并缓存，后续 API 调用带上头。
+  const TOKEN = new URLSearchParams(location.search).get('token') || localStorage.getItem('relayToken') || '';
+  if (TOKEN) localStorage.setItem('relayToken', TOKEN);
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -331,6 +335,7 @@
     const opt = body === undefined ? {} : {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     };
+    if (TOKEN) { opt.headers = opt.headers || {}; opt.headers['X-Relay-Token'] = TOKEN; }
     const r = await fetch(API_BASE + '/api/' + path, opt);
     return r.json();
   }
@@ -456,8 +461,8 @@
   $('#searchImage').addEventListener('input', (e) => { state.searchI = e.target.value; renderImages(); });
   $('#btnRefresh').addEventListener('click', () => { $('#refreshIcon').textContent = '…'; refreshAll(); });
 
-  // 大数据平台跳转链接（兼容同源 / 跨域静态预览两种打开方式）
-  $('#linkBigdata').href = API_BASE + '/bigdata';
+  // 大数据平台跳转链接（兼容同源 / 跨域静态预览两种打开方式；带 token）
+  $('#linkBigdata').href = API_BASE + '/bigdata' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : '');
 
   // 容器动作
   $('#containerList').addEventListener('click', async (e) => {
