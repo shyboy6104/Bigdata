@@ -157,7 +157,11 @@
 
 <script>
 (function () {
-  const API_BASE = (location.origin === 'http://127.0.0.1:8000') ? '' : 'http://127.0.0.1:8000';
+  // 同源（relay 自身托管，含 127.0.0.1 与局域网 IP，端口 8000）时留空；否则指向本机 relay。
+  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  // 访问令牌：从 URL ?token= 读取并缓存，后续 API 调用带上头。
+  const TOKEN = new URLSearchParams(location.search).get('token') || localStorage.getItem('relayToken') || '';
+  if (TOKEN) localStorage.setItem('relayToken', TOKEN);
 
   const $ = (s) => document.querySelector(s);
 
@@ -179,10 +183,14 @@
   const containersMap = {}; // key -> [{name,id,service,state,status}]
   let busy = false;
 
-  async function getJSON(path) { const r = await fetch(API_BASE + path); return r.json(); }
+  async function getJSON(path) {
+    const h = {}; if (TOKEN) h['X-Relay-Token'] = TOKEN;
+    const r = await fetch(API_BASE + path, { headers: h }); return r.json();
+  }
   async function postJSON(path, body) {
+    const h = { 'Content-Type': 'application/json' }; if (TOKEN) h['X-Relay-Token'] = TOKEN;
     const r = await fetch(API_BASE + path, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      headers: h, body: JSON.stringify(body) });
     return r.json();
   }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -386,7 +394,7 @@
 
   $('#btnStatusAll').addEventListener('click', refreshStatus);
   $('#btnClear').addEventListener('click', () => { $('#log').textContent = ''; });
-  $('#btnDocker').addEventListener('click', () => { location.href = API_BASE + '/'; });
+  $('#btnDocker').addEventListener('click', () => { location.href = API_BASE + '/' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''); });
   $('#btnBuildBase').addEventListener('click', () => exec('build-base', 'all', 'single'));
 
   $('#btnCleanAll').addEventListener('click', () =>
