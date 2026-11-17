@@ -172,7 +172,8 @@
 <script>
 (function () {
   // 同源（relay 自身托管，含 127.0.0.1 与局域网 IP，端口 8000）时留空；否则指向本机 relay。
-  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  // 本页必须由 relay 提供，始终同源；局域网/自定义端口下也指向当前访问的那台服务器。
+  const API_BASE = '';
   // 访问令牌：从 URL ?token= 读取并缓存，后续 API 调用带上头。
   const TOKEN = new URLSearchParams(location.search).get('token') || localStorage.getItem('relayToken') || '';
   if (TOKEN) localStorage.setItem('relayToken', TOKEN);

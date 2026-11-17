@@ -76,14 +76,31 @@
 
 ```bat
 docker-manager\start.bat              :: 默认 http://127.0.0.1:8000/login
-docker-manager\start-lan.bat          :: 局域网可访问（0.0.0.0），供学生从自己电脑登录
+docker-manager\start-lan.bat          :: 局域网可访问（0.0.0.0，不设令牌），供学生从自己电脑登录
 ```
 
 - 首次启动自动创建管理员 `admin / admin123`（可用环境变量 `ADMIN_PASSWORD` 指定），**请登录后立即修改**。
 - 页面入口：`/login` 登录 · `/` Docker 管理器（管理员）· `/bigdata` 大数据平台（管理员）· `/users` 用户管理（管理员）· `/portal` 我的实验环境（普通用户）。
 - 组件镜像需先由管理员在 `/bigdata` 构建；普通用户只能启停自己的容器，不能构建/删除镜像。
-- `RELAY_TOKEN` 仍可设置（兼容旧用法）：带正确令牌的请求视为管理员；正常教学场景建议直接用账号登录。
+- `RELAY_TOKEN` 仍可设置（兼容旧用法）：带正确令牌的请求**视为管理员**；正常教学场景请直接用账号登录，**切勿把令牌发给学生**。
 - `BIGDATA_USERS_FILE` 可指定用户库路径（默认 `docker-manager/users.json`），便于多实例或测试隔离。
+
+### 局域网访问（学生从自己电脑打开）
+
+默认 `start.bat` 只监听 `127.0.0.1`，此时 **`http://<服务器IP>:8000/portal` 打不开**。要开放给学生：
+
+```bat
+:: 1. 先关闭旧的 "BigData Relay" 窗口（启动脚本有端口幂等检查，端口被占用时不会重新绑定）
+:: 2. 再运行局域网启动脚本（不带令牌）；如需自定义端口：start-lan.bat "" 9000
+docker-manager\start-lan.bat
+```
+
+启动窗口会打印多个 `http://<IP>:8000/login`，**选与学生同一网段的物理网卡 IP**（VMware / WSL / vEthernet 等虚拟网卡地址要排除）。发给学生的地址是 **`/login`**：登录后普通用户自动进入 `/portal`，管理员进入 `/`；直接访问 `/portal` 而未登录时，页面会自行跳转到 `/login`。
+
+- 页面、API、WebSocket 全交互终端、端口徽章链接都按浏览器当前访问的主机名同源拼接，局域网下无需额外配置。
+- **不要启用 `RELAY_TOKEN` 并把令牌发给学生**：带正确令牌的请求会被视作管理员，可增删账号并操作宿主机全部容器。`start-lan.bat` / `start-lan.sh` 默认已改为不设令牌，统一用账号登录。
+- **Windows 防火墙**：若网络被识别为「公用网络(Public)」，系统对 `python.exe` 的显式阻止规则可能拦掉 8000 入站。把该网络设为「专用网络(Private)」，或由管理员添加 TCP 8000 入站允许规则（并确认没有优先级更高的程序级阻止规则）。
+- 学生机与服务器需在同一可达网段；校园网若开启 AP/客户端隔离，需联系网络管理员放通。
 
 ### 管理员操作（/users）
 
@@ -115,18 +132,37 @@ docker-manager\start-lan.bat          :: 局域网可访问（0.0.0.0），供�
 
 Spark 入口脚本会阻塞等待 `namenode:8020`，因此该顺序是必需的；依赖就绪后日志出现 `HDFS NameNode is ready!`，Master 随即启动。
 
-### 进入容器执行命令（Web 终端）
+### 进入容器执行命令
 
-普通用户在 `/portal` 启动组件后，运行中容器的右侧会出现 **>_ 终端** 按钮，点击即可在浏览器里对该容器执行 `docker exec`：
+普通用户在 `/portal` 启动组件后，运行中的容器右侧提供两个入口：
 
-- 后端接口 `POST /api/portal/exec-container`，等价于 `docker exec -i <容器> bash -lc "<命令>"`；镜像无 bash 时自动回退 `sh`。
-- 逐条执行并返回输出与退出码；自动保留 `cd` 后的工作目录；支持 ↑↓ 命令历史、Ctrl+L 清空、快捷命令。
-- 容器归属三重校验：容器名前缀 `u<uid>-`、`com.docker.compose.project` / `.service` 标签必须属于本人 compose 项目、容器必须正在运行。普通用户无法进入他人容器、宿主机主平台容器或手工伪造的同名容器。
-- 单条命令默认最长 60 秒（上限 120 秒），超时中断。`vim` / `top` / `spark-shell` 等需要完整交互 TTY 的程序不在此运行；面板提供「复制 exec 命令」，可复制 `docker exec -it <容器> bash` 到能访问 Docker 的机器终端执行。
+| 入口 | 形态 | 适用场景 |
+|---|---|---|
+| **>_ 终端** | 页面内逐条命令面板 | 快速执行单条命令、查看输出；轻量、无需长连接 |
+| **▣ 全交互** | 新标签页打开 `/terminal?container=<容器名>` | **真实 TTY**：`vim` / `top` / `spark-shell` / `hdfs dfs`，Tab 补全、Ctrl+C、命令历史 |
+
+#### 逐条命令终端（`>_ 终端`）
+
+- 后端 `POST /api/portal/exec-container`，等价于 `docker exec -i <容器> bash -lc "<命令>"`；镜像无 bash 时自动回退 `sh`。
+- 返回输出与退出码，自动保留 `cd` 后的工作目录；支持 ↑↓ 历史、Ctrl+L 清空、9 个快捷命令。
+- 单条命令默认 60 秒（上限 120 秒）超时中断；面板可复制 `docker exec -it <容器> bash` 供本机终端使用。
+
+#### 全交互 TTY（`▣ 全交互`）
+
+- `GET /api/portal/term-ws?container=<容器名>` 是原生 WebSocket（**纯 Python 标准库实现 RFC 6455**，无第三方后端依赖），浏览器端用本地静态资源 `docker-manager/vendor/xterm.min.js`（xterm.js 5.3.0，MIT，离线可用）。
+- Windows 上 `docker exec -it` 要求父进程 stdin 本身是 TTY，Python 服务不满足；后端改为在容器内用 util-linux 的 `script` 创建伪终端：
+  `docker exec -i <容器> script -q -c "stty rows 40 cols 120; exec bash -l" /dev/null`，
+  容器内得到 `/dev/pts/X`，因此 `vim` / `top` 等全屏程序能正常工作。
+- 终端固定 **120×40**，页面提供字号缩放；动态调整窗口尺寸需要 Docker Engine API 的 exec resize，当前版本未实现。
+- 输入 `exit`、点「发送 exit」或直接关闭页面，后端都会让 shell 正常退出并清理 PTY 进程，不会在容器内残留交互进程。
+
+#### 共用的安全边界
+
+两种入口共用 `user_container_allowed()` 三重校验：容器名前缀 `u<uid>-`、`com.docker.compose.project` / `.service` 标签必须属于本人 compose 项目、容器必须正在运行，且 inspect 返回的真实容器名与传入一致。普通用户无法进入他人容器、宿主机主平台容器或手工伪造的同名容器；WebSocket 握手同样要求登录会话（Cookie 为 `SameSite=Lax`）。
 
 ### 安全说明
 
-relay 以宿主机用户权限调用 Docker，等同于把 Docker 控制权交给已登录用户，**仅在可信局域网内使用**。账号密码使用 PBKDF2-SHA256 加盐哈希存放于 `docker-manager/users.json`（已加入 `.gitignore`，严禁提交），会话为 12 小时内存态 Cookie，服务重启后需重新登录。
+relay 以宿主机用户权限调用 Docker，等同于把 Docker 控制权交给已登录用户，**仅在可信局域网内使用**。全交互 TTY 授予的是用户自己容器内的完整 shell；共享的 `config/` 会挂载进每个用户容器，请勿在其中放置敏感信息。账号密码使用 PBKDF2-SHA256 加盐哈希存放于 `docker-manager/users.json`（已加入 `.gitignore`，严禁提交），会话为 12 小时内存态 Cookie，服务重启后需重新登录。
 
 ## 环境要求
 

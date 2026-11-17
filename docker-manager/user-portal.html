@@ -132,6 +132,8 @@
   /* ---- 容器 Web 终端 ---- */
   .btn.term { color: var(--green); border-color: rgba(34,197,94,.35); font-family: Consolas, Menlo, monospace; }
   .btn.term:hover { border-color: var(--green); background: rgba(34,197,94,.1); color: var(--green); }
+  .btn.tty { color: var(--cyan); border-color: rgba(6,182,212,.35); text-decoration: none; }
+  .btn.tty:hover { border-color: var(--cyan); background: rgba(6,182,212,.1); color: var(--cyan); }
   .modal.term-modal { max-width: 980px; }
   .term-head { display: flex; align-items: center; gap: 10px; }
   .term-head h3 span { font-family: Consolas, Menlo, monospace; color: var(--green); font-size: 13.5px; }
@@ -180,7 +182,8 @@
     点击卡片上的「启动」即可创建；端口徽章中带 ↗ 的可在浏览器直接打开。<br>
     <b>组件依赖</b>：启动 Spark / Hive / HBase 时，系统会<b>自动先启动 Hadoop</b> 等前置组件（Hive 还需 MySQL、Kafka 需 ZooKeeper、Flume 需 Kafka），
     已运行的依赖会自动跳过，无需手动按顺序点。当前使用 <b>standard</b> 还是 <b>HA</b> 版 Hadoop 由服务器 config/environment.conf 决定。<br>
-    <b>进入容器</b>：运行中的容器右侧有 <b>&gt;_ 终端</b> 按钮，点击可在浏览器里执行 <b>docker exec</b> 命令（只能进入你自己的容器）。<br>
+    <b>进入容器</b>：运行中的容器右侧有两种入口 —— <b>&gt;_ 终端</b> 在页面内逐条执行命令；
+    <b>▣ 全交互</b> 打开真实 TTY（新标签页），可用 <b>vim / top / spark-shell</b>、Tab 补全与 Ctrl+C。两者都只能进入你自己的容器。<br>
     <span class="hint">控制台出现 <i>Found orphan containers</i> 警告属正常现象：同一用户的多个组件共用一个 Compose 项目名，以便服务名互相解析；它不会删除别的组件。</span>
   </div>
 
@@ -266,7 +269,9 @@
 
 <script>
 (function () {
-  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  // 本页必须由 relay 提供，始终同源；局域网/自定义端口下也指向当前访问的那台服务器。
+  // 会话 Cookie 为 SameSite=Lax，跨源请求不会携带，直接双击 HTML / 静态预览无法登录。
+  const API_BASE = '';
   const $ = (s) => document.querySelector(s);
 
   const COMPS = [
@@ -344,8 +349,10 @@
       html += '<div class="ctr-row">' +
         '<span class="ctr-name">' + esc(ct.name) + '</span>' +
         (up
-          ? '<button class="btn sm term" data-term="' + esc(ct.name) + '" title="在浏览器内进入该容器执行命令（docker exec）">&gt;_ 终端</button>'
-          : '<button class="btn sm" disabled title="容器未运行，无法进入">&gt;_ 终端</button>') +
+          ? '<button class="btn sm term" data-term="' + esc(ct.name) + '" title="在浏览器内逐条执行容器命令（docker exec）">&gt;_ 终端</button>' +
+            '<a class="btn sm tty" href="/terminal?container=' + encodeURIComponent(ct.name) + '" target="_blank" rel="noopener" title="打开全交互 TTY，支持 vim / top / spark-shell">▣ 全交互</a>'
+          : '<button class="btn sm" disabled title="容器未运行，无法进入">&gt;_ 终端</button>' +
+            '<button class="btn sm" disabled title="容器未运行，无法进入">▣ 全交互</button>') +
         '<span class="ctr-state ' + (up ? 'up' : '') + '">' + (up ? '● ' : '○ ') + esc(ct.status || ct.state) + '</span>' +
         buildPorts(ct) +
         '</div>';

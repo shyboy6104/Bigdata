@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全交互终端 · 大数据实验平台</title>
+<!-- xterm.js 5.3.0 (MIT) · 本地静态资源，离线可用 · 来源 https://cdn.jsdelivr.net/npm/xterm@5.3.0/ -->
+<link rel="stylesheet" href="/vendor/xterm.min.css">
+<script src="/vendor/xterm.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d26; --panel2: #1e2632; --border: #2a3340;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #3b82f6;
+    --green: #22c55e; --red: #ef4444; --amber: #f59e0b; --cyan: #06b6d4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 12px; padding: 9px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap;
+  }
+  .logo { font-weight: 700; font-size: 15px; white-space: nowrap; }
+  .cname { font-family: Consolas, Menlo, monospace; color: var(--green); font-size: 13px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 5px; }
+  .dot.ok { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,.7); }
+  .dot.err { background: var(--red); }
+  .dot.wait { background: var(--amber); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  .status { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); padding: 5px 11px; border-radius: 7px;
+    cursor: pointer; font-size: 12.5px; font-family: inherit; text-decoration: none; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { color: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .tip {
+    padding: 7px 16px; font-size: 11.5px; color: var(--muted);
+    background: rgba(59,130,246,.06); border-bottom: 1px solid var(--border);
+  }
+  .tip b { color: var(--text); }
+  .tip code { font-family: Consolas, Menlo, monospace; color: var(--cyan); }
+
+  .term-wrap {
+    flex: 1; min-height: 0; overflow: auto; padding: 10px 12px;
+    background: #0a0d11; display: flex; justify-content: center;
+  }
+  #term { flex: 0 0 auto; }
+  #term .xterm { padding: 4px; }
+  .err-box {
+    margin: auto; max-width: 560px; padding: 18px 22px; border: 1px solid var(--red);
+    border-radius: 10px; background: rgba(239,68,68,.08); font-size: 13.5px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">▣ 全交互终端</span>
+  <span class="cname" id="cname">—</span>
+  <span class="status"><span class="dot" id="dot"></span><span id="statusText">初始化…</span></span>
+  <div class="actions">
+    <button class="btn" id="btnFontDown" title="缩小字号">A−</button>
+    <button class="btn" id="btnFontUp" title="放大字号">A＋</button>
+    <button class="btn" id="btnExit" title="向容器发送 exit 正常退出 shell">发送 exit</button>
+    <button class="btn" id="btnReconnect" disabled>重新连接</button>
+    <button class="btn danger" id="btnClose">断开</button>
+    <a class="btn" id="btnBack" href="/portal">返回门户</a>
+  </div>
+</div>
+
+<div class="tip">
+  这是<b>真实 TTY</b>：<code>bash -l</code> 运行在容器内的 <code>/dev/pts/X</code> 上，
+  <code>vim</code> / <code>top</code> / <code>spark-shell</code> / <code>hdfs dfs</code> 等交互程序均可使用，
+  支持 Ctrl+C、Tab 补全、命令历史。终端固定 <b>120×40</b>，窗口较小时可用 A− 缩小或横向滚动。
+  退出请输 <code>exit</code> 或点「发送 exit」；直接关闭页面也会自动清理会话。
+</div>
+
+<div class="term-wrap" id="termWrap"><div id="term"></div></div>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const qs = new URLSearchParams(location.search);
+  const container = qs.get('container') || '';
+  const ROWS = 40, COLS = 120;
+
+  // 本页由 relay 自身提供，始终同源（Cookie 会话才会随 WebSocket 握手自动携带）。
+  const API_BASE = '';
+  const base = new URL(location.origin);
+  const scheme = (base.protocol === 'https:') ? 'wss:' : 'ws:';
+  const wsUrl = scheme + '//' + base.host + '/api/portal/term-ws?container=' + encodeURIComponent(container);
+
+  $('#cname').textContent = container || '(未指定容器)';
+  $('#btnBack').href = API_BASE + '/portal';
+
+  function setStatus(kind, text) {
+    $('#dot').className = 'dot ' + kind;
+    $('#statusText').textContent = text;
+  }
+  function showError(msg) {
+    $('#termWrap').innerHTML = '<div class="err-box"><b>无法打开终端</b><br><br>' + msg +
+      '<br><br>请返回门户，确认组件已启动并重新点击「全交互终端」。</div>';
+    setStatus('err', '打开失败');
+  }
+
+  if (!container) { showError('缺少容器参数。'); return; }
+  if (typeof Terminal === 'undefined') {
+    showError('终端组件 xterm.js 未加载，请确认 docker-manager/vendor/xterm.min.js 存在。');
+    return;
+  }
+
+  // 会话校验：未登录直接回登录页
+  fetch(API_BASE + '/api/auth/me', { credentials: 'same-origin' })
+    .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => {
+      if (!ok || !j.ok) { location.href = API_BASE + '/login'; return; }
+      initTerminal();
+    })
+    .catch(() => { location.href = API_BASE + '/login'; });
+
+  let term = null, ws = null, fontSize = 14;
+
+  function initTerminal() {
+    term = new Terminal({
+      cols: COLS, rows: ROWS,
+      fontFamily: 'Consolas, "Courier New", Menlo, monospace',
+      fontSize: fontSize, lineHeight: 1.15, letterSpacing: 0,
+      cursorBlink: true, scrollback: 5000, convertEol: false,
+      theme: {
+        background: '#0a0d11', foreground: '#c9d4e0', cursor: '#22c55e',
+        selectionBackground: 'rgba(59,130,246,.35)',
+        black: '#0a0d11', red: '#ef4444', green: '#22c55e', yellow: '#f59e0b',
+        blue: '#3b82f6', magenta: '#a855f7', cyan: '#06b6d4', white: '#e6edf3'
+      }
+    });
+    term.open($('#term'));
+    term.focus();
+
+    term.onData((data) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+    });
+
+    $('#term').addEventListener('click', () => { if (term) term.focus(); });
+    connect();
+  }
+
+  function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    setStatus('wait', '连接中…');
+    $('#btnReconnect').disabled = true;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      setStatus('err', '连接失败');
+      showError('WebSocket 地址无效：' + e.message);
+      return;
+    }
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      setStatus('ok', '已连接 · ' + container + ' · ' + COLS + '×' + ROWS);
+      if (term) { term.write('\x1b[32m● 已连接到 ' + container + '（真实 TTY）\x1b[0m\r\n'); term.focus(); }
+    };
+    ws.onmessage = (ev) => {
+      if (!term) return;
+      if (ev.data instanceof ArrayBuffer) term.write(new Uint8Array(ev.data));
+      else if (typeof ev.data === 'string') term.write(ev.data);
+    };
+    ws.onerror = () => { setStatus('err', '连接错误'); };
+    ws.onclose = (ev) => {
+      setStatus('err', '连接已关闭');
+      if (term) term.write('\r\n\x1b[31m[连接已关闭 · 可点「重新连接」再次进入]\x1b[0m\r\n');
+      $('#btnReconnect').disabled = false;
+      ws = null;
+    };
+  }
+
+  $('#btnFontDown').addEventListener('click', () => {
+    if (!term) return;
+    fontSize = Math.max(9, fontSize - 1); term.options.fontSize = fontSize; term.focus();
+  });
+  $('#btnFontUp').addEventListener('click', () => {
+    if (!term) return;
+    fontSize = Math.min(24, fontSize + 1); term.options.fontSize = fontSize; term.focus();
+  });
+  $('#btnExit').addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send('exit\r');
+    if (term) term.focus();
+  });
+  $('#btnReconnect').addEventListener('click', connect);
+  $('#btnClose').addEventListener('click', () => {
+    if (ws) ws.close();
+  });
+  window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
+})();
+</script>
+</body>
+</html>

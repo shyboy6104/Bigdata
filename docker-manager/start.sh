@@ -32,7 +32,7 @@ fi
 if [ -n "$TOKEN" ]; then
   URL="http://127.0.0.1:${PORT}/bigdata?token=${TOKEN}"
 else
-  URL="http://127.0.0.1:${PORT}/bigdata"
+  URL="http://127.0.0.1:${PORT}/login"
 fi
 
 # 1) 探测 python3
@@ -56,6 +56,10 @@ fi
 # 2) 幂等检查
 if is_listening; then
   echo "Relay 已在运行： ${URL}"
+  if [ "$HOST" = "0.0.0.0" ] && ! ss -tln 2>/dev/null | grep -q "0.0.0.0:${PORT} "; then
+    echo "[警告] 当前 relay 只监听 127.0.0.1，局域网其他电脑仍访问不了！"
+    echo "       请先停止旧的 relay 进程，再运行本脚本。"
+  fi
 else
   echo "正在启动 relay： host=${HOST} port=${PORT} token=${TOKEN:-无}"
   WIN_STARTED=0
@@ -90,6 +94,6 @@ if [ "$HOST" = "0.0.0.0" ]; then
   echo "局域网访问地址（任选其一）："
   hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.' | while read ip; do
     [ -n "$TOKEN" ] && echo "  http://${ip}:${PORT}/bigdata?token=${TOKEN}"
-    [ -z "$TOKEN" ] && echo "  http://${ip}:${PORT}/bigdata"
+    [ -z "$TOKEN" ] && echo "  http://${ip}:${PORT}/login"
   done
 fi

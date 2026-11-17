@@ -3,11 +3,11 @@ rem BigData / Docker manager one-click launcher (idempotent).
 rem If the relay is already running, it only opens the browser.
 rem Keep the "BigData Relay" window open while using the page.
 rem
-rem ç”¨æ³•ï¼š
-rem   start.bat                 ä»…æœ¬æœºè®¿é—®ï¼ˆ127.0.0.1ï¼‰
-rem   start.bat lan             å±€åŸŸç½‘å¯è®¿é—®ï¼ˆ0.0.0.0ï¼‰ï¼Œä¸è®¾ä»¤ç‰Œ
-rem   start.bat lan mytoken     å±€åŸŸç½‘å¯è®¿é—®ï¼Œå¹¶è®¾ç½®è®¿é—®ä»¤ç‰Œ mytoken
-rem   start.bat lan mytoken 9000  è‡ªå®šä¹‰ç«¯å£+ä»¤ç‰Œ+å±€åŸŸç½‘
+rem ÓÃ·¨£º
+rem   start.bat                 ½ö±¾»ú·ÃÎÊ£¨127.0.0.1£©
+rem   start.bat lan             ¾ÖÓòÍø¿É·ÃÎÊ£¨0.0.0.0£©£¬²»ÉèÁîÅÆ
+rem   start.bat lan mytoken     ¾ÖÓòÍø¿É·ÃÎÊ£¬²¢ÉèÖÃ·ÃÎÊÁîÅÆ mytoken
+rem   start.bat lan mytoken 9000  ×Ô¶¨Òå¶Ë¿Ú+ÁîÅÆ+¾ÖÓòÍø
 
 cd /d "%~dp0"
 
@@ -15,7 +15,7 @@ set "HOST=127.0.0.1"
 set "PORT=8000"
 set "TOKEN="
 
-rem è§£æå‚æ•°
+rem ½âÎö²ÎÊı
 if /i "%~1"=="lan" (
     set "HOST=0.0.0.0"
     if not "%~2"=="" set "TOKEN=%~2"
@@ -26,9 +26,18 @@ if /i "%~1"=="lan" (
 
 netstat -ano | findstr ":%PORT%" | findstr "LISTENING" >nul 2>&1
 if %errorlevel%==0 (
-    echo Relay å·²åœ¨ç«¯å£ %PORT% ä¸Šè¿è¡Œ
+    echo Relay ÒÑÔÚ¶Ë¿Ú %PORT% ÉÏÔËĞĞ
+    if /i "%~1"=="lan" (
+        netstat -ano | findstr /c:"0.0.0.0:%PORT%" | findstr "LISTENING" >nul 2>&1
+        if errorlevel 1 (
+            echo.
+            echo [WARNING] The running relay listens on 127.0.0.1 only; other LAN computers still cannot connect.
+            echo           Close the old BigData Relay window, or kill its python process, then run this script again.
+            echo.
+        )
+    )
 ) else (
-    echo å¯åŠ¨ relayï¼šä¸»æœº=%HOST% ç«¯å£=%PORT% ä»¤ç‰Œ=%TOKEN%
+    echo Æô¶¯ relay£ºÖ÷»ú=%HOST% ¶Ë¿Ú=%PORT% ÁîÅÆ=%TOKEN%
     set "RELAY_HOST=%HOST%"
     set "RELAY_TOKEN=%TOKEN%"
     if "%TOKEN%"=="" (
@@ -40,7 +49,7 @@ if %errorlevel%==0 (
 )
 
 if "%TOKEN%"=="" (
-    start "" "http://127.0.0.1:%PORT%/bigdata"
+    start "" "http://127.0.0.1:%PORT%/login"
 ) else (
     start "" "http://127.0.0.1:%PORT%/bigdata?token=%TOKEN%"
 )

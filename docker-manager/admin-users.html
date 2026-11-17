@@ -172,7 +172,8 @@
 
 <script>
 (function () {
-  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  // 本页必须由 relay 提供，始终同源；会话 Cookie 才会随请求携带。
+  const API_BASE = '';
   const $ = (s) => document.querySelector(s);
 
   async function getJSON(path) {

@@ -68,7 +68,9 @@
 
 <script>
 (function () {
-  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  // 本页必须由 relay 提供（http://<服务器IP>:<端口>/login），始终同源；
+  // 会话 Cookie 为 SameSite=Lax，只有同源请求才会携带，直接双击 HTML / 静态预览无法登录。
+  const API_BASE = '';
   const form = document.getElementById('loginForm');
   const msg = document.getElementById('msg');
   const btn = document.getElementById('btnLogin');

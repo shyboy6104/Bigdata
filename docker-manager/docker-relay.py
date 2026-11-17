@@ -51,6 +51,8 @@ BIGDATA_INDEX = os.path.join(HERE, "bigdata-manager.html")
 LOGIN_PAGE = os.path.join(HERE, "login.html")
 PORTAL_PAGE = os.path.join(HERE, "user-portal.html")
 ADMIN_USERS_PAGE = os.path.join(HERE, "admin-users.html")
+TERMINAL_PAGE = os.path.join(HERE, "terminal.html")
+VENDOR_DIR = os.path.join(HERE, "vendor")
 PROJECT_DIR = os.environ.get("BIGDATA_PROJECT_DIR") or os.path.dirname(HERE)
 
 
@@ -1074,6 +1076,184 @@ def api_portal_exec_container(rec, body):
             "cwd": cwd, "container": container}
 
 
+# ============================================================
+# 全交互终端：WebSocket（RFC 6455，纯标准库）+ 容器内 PTY
+# ============================================================
+import base64
+import struct
+
+WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+TERM_ROWS = 40
+TERM_COLS = 120
+
+
+class WSConnection:
+    """极简 WebSocket 服务端帧编解码：客户端帧必须掩码，服务端回二进制帧。"""
+
+    def __init__(self, handler, stop_evt):
+        self.rfile = handler.rfile
+        self.sock = handler.connection
+        self.stop_evt = stop_evt
+        self.lock = threading.Lock()
+        self.buf = b""
+        self.alive = True
+
+    def _read_exact(self, n):
+        # 注意：不要用 socket.settimeout + rfile.read1 组合。socket.makefile() 的
+        # BufferedReader 一旦发生读超时就会永久进入 "cannot read from timed out object"
+        # 状态，导致终端空闲半秒即被误关。这里保持阻塞读，会话结束时由
+        # connection.shutdown() 唤醒本线程。
+        while len(self.buf) < n:
+            chunk = self.rfile.read1(65536) if hasattr(self.rfile, "read1") else self.rfile.read(1)
+            if not chunk:
+                raise ConnectionError("peer closed")
+            self.buf += chunk
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def recv_message(self):
+        """返回 (kind, data)：text / binary / close / ignore；自动应答 ping、拼接分片。"""
+        parts, first_opcode = [], None
+        while True:
+            b1, b2 = self._read_exact(2)
+            fin = bool(b1 & 0x80)
+            opcode = b1 & 0x0F
+            masked = bool(b2 & 0x80)
+            length = b2 & 0x7F
+            if length == 126:
+                length = struct.unpack("!H", self._read_exact(2))[0]
+            elif length == 127:
+                length = struct.unpack("!Q", self._read_exact(8))[0]
+            mask = self._read_exact(4) if masked else None
+            data = self._read_exact(length) if length else b""
+            if mask:
+                data = bytes(c ^ mask[i & 3] for i, c in enumerate(data))
+            if opcode == 0x8:          # close
+                return "close", b""
+            if opcode == 0x9:          # ping -> pong
+                self.send(data, opcode=0xA)
+                continue
+            if opcode == 0xA:          # pong
+                continue
+            if opcode in (0x1, 0x2):
+                if first_opcode is None:
+                    first_opcode = opcode
+                parts.append(data)
+                if fin:
+                    return ("text" if first_opcode == 0x1 else "binary", b"".join(parts))
+            if fin and first_opcode is None:
+                return "ignore", b""
+
+    def send(self, data, opcode=0x2):
+        if isinstance(data, str):
+            data = data.encode("utf-8", "replace")
+        header = bytearray([0x80 | opcode])
+        n = len(data)
+        if n < 126:
+            header.append(n)
+        elif n < 65536:
+            header.append(126)
+            header += struct.pack("!H", n)
+        else:
+            header.append(127)
+            header += struct.pack("!Q", n)
+        with self.lock:
+            if self.alive:
+                self.sock.sendall(bytes(header) + data)
+
+    def close(self):
+        try:
+            self.send(b"", opcode=0x8)
+        except Exception:
+            pass
+        self.alive = False
+
+
+def run_interactive_term(handler, container):
+    """把浏览器终端与容器内 PTY 双向桥接，直到任一侧关闭。
+
+    docker exec -it 要求父进程 stdin 本身是 TTY（Python 服务不具备），因此改在容器内
+    用 util-linux 的 script 创建伪终端：
+        docker exec -i <容器> script -q -c "stty rows 40 cols 120; exec bash -l" /dev/null
+    这样 bash / vim / top 都认为自己连着真终端。
+    """
+    key = handler.headers.get("Sec-WebSocket-Key", "")
+    accept = base64.b64encode(
+        hashlib.sha1((key + WS_MAGIC_GUID).encode("ascii")).digest()).decode("ascii")
+    handler.close_connection = True
+    handler.connection.sendall((
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
+    ).encode("ascii"))
+
+    stop = threading.Event()
+    ws = WSConnection(handler, stop)
+    inner = "stty rows %d cols %d 2>/dev/null; exec bash -l" % (TERM_ROWS, TERM_COLS)
+    cmd = ["docker", "exec", "-e", "TERM=xterm-256color", "-e", "LANG=C.UTF-8",
+           "-i", container, "script", "-q", "-c", inner, "/dev/null"]
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, bufsize=0)
+    except Exception as e:
+        ws.send(("\r\n[ERROR] 无法启动容器终端：%s\r\n" % e).encode("utf-8"))
+        ws.close()
+        return
+
+    def ws_to_pty():
+        try:
+            while ws.alive and not stop.is_set():
+                kind, data = ws.recv_message()
+                if kind == "close":
+                    break
+                if kind in ("text", "binary") and data:
+                    proc.stdin.write(data)
+                    proc.stdin.flush()
+        except Exception:
+            pass
+        finally:
+            stop.set()
+
+    def pty_to_ws():
+        try:
+            while not stop.is_set():
+                data = proc.stdout.read(4096)
+                if not data:
+                    break
+                ws.send(data, opcode=0x2)
+        except Exception:
+            pass
+        finally:
+            stop.set()
+
+    t1 = threading.Thread(target=ws_to_pty, daemon=True)
+    t2 = threading.Thread(target=pty_to_ws, daemon=True)
+    t1.start()
+    t2.start()
+    stop.wait()
+
+    # 让 shell 正常退出，避免容器内残留交互式进程
+    try:
+        if proc.poll() is None:
+            proc.stdin.write(b"exit\r")
+            proc.stdin.flush()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=3)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    ws.close()
+    try:
+        handler.connection.shutdown(socket.SHUT_RDWR)
+    except Exception:
+        pass
+
+
 def build_portal_run_fn(rec, op, component, tail):
     """用户栈操作：start/stop/restart/destroy/clean/logs。"""
     def _fail(emit, msg):
@@ -1336,6 +1516,39 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"ok": False, "error": "页面文件不存在"})
 
+    def _send_asset(self, path, content_type):
+        if not os.path.exists(path):
+            return self._send(404, {"ok": False, "error": "静态资源不存在"})
+        with open(path, "rb") as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_term_ws(self, qs):
+        """全交互终端 WebSocket 端点：复用逐命令终端的容器归属校验。"""
+        if self.headers.get("Upgrade", "").lower() != "websocket":
+            return self._send(400, {"ok": False, "error": "需要 WebSocket 升级请求"})
+        if not self.headers.get("Sec-WebSocket-Key"):
+            return self._send(400, {"ok": False, "error": "缺少 Sec-WebSocket-Key"})
+        # 会话 Cookie 为 SameSite=Lax，跨站握手不会携带 sid，_require 会直接 401。
+        cur, err = self._require()
+        if err:
+            return
+        rec = get_user(cur["username"])
+        if not rec:
+            return self._send(401, {"ok": False, "error": "账号已不存在"})
+        if rec.get("disabled"):
+            return self._send(403, {"ok": False, "error": "账号已被禁用"})
+        container = (qs.get("container") or [""])[0].strip()
+        allowed, why = user_container_allowed(rec, container)
+        if not allowed:
+            return self._send(403, {"ok": False, "error": why})
+        return run_interactive_term(self, container)
+
     def _read_body(self):
         try:
             n = int(self.headers.get("Content-Length", 0))
@@ -1374,6 +1587,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(PORTAL_PAGE)
         if path == "/users":
             return self._send_file(ADMIN_USERS_PAGE)
+        if path == "/terminal":
+            return self._send_file(TERMINAL_PAGE)
+        if path in ("/vendor/xterm.min.js", "/vendor/xterm.min.css"):
+            ctype = ("application/javascript; charset=utf-8" if path.endswith(".js")
+                     else "text/css; charset=utf-8")
+            return self._send_asset(os.path.join(VENDOR_DIR, os.path.basename(path)), ctype)
         if path in ("/", "/index.html", "/docker-manager.html"):
             return self._send_file(INDEX)
         if path in ("/bigdata", "/bigdata.html"):
@@ -1386,6 +1605,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, {"ok": False, "error": "未登录"})
             return self._send(200, {"ok": True, "username": cur["username"],
                                     "role": cur["role"], "uid": cur.get("uid")})
+
+        if path == "/api/portal/term-ws":
+            return self._handle_term_ws(qs)
 
         if path == "/api/portal/stacks":
             cur, err = self._require()
