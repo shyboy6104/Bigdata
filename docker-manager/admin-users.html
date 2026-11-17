@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户管理 · 大数据实验平台</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d26; --panel2: #1e2632; --border: #2a3340;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #3b82f6; --accent-h: #2563eb;
+    --green: #22c55e; --red: #ef4444; --amber: #f59e0b; --cyan: #06b6d4;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2f3b4a; border-radius: 4px; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 12px 22px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    position: sticky; top: 0; z-index: 20; flex-wrap: wrap;
+  }
+  .logo { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; }
+  .logo .sub { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+  .top-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); padding: 7px 13px; border-radius: 8px;
+    cursor: pointer; font-size: 13px; transition: .15s; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-h); color: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn.danger:hover { border-color: var(--red); background: rgba(239,68,68,.1); color: var(--red); }
+  .btn.warn { color: var(--amber); }
+  .btn.warn:hover { border-color: var(--amber); background: rgba(245,158,11,.1); color: var(--amber); }
+  .btn.sm { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .main { flex: 1; max-width: 1100px; margin: 0 auto; padding: 18px 22px 24px; width: 100%; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; margin-bottom: 16px;
+  }
+  .panel h3 { font-size: 15px; margin-bottom: 12px; }
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .field input, .field select {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 11px; font-size: 13.5px; outline: none; font-family: inherit;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11.5px; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid rgba(42,51,64,.55); vertical-align: middle; }
+  tr:hover td { background: rgba(30,38,50,.5); }
+  .mono { font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid transparent; }
+  .b-admin { color: var(--amber); background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.3); }
+  .b-user { color: var(--cyan); background: rgba(6,182,212,.12); border-color: rgba(6,182,212,.3); }
+  .b-off { color: var(--red); background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); }
+  .b-ok { color: var(--green); background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.3); }
+  .stacks { color: var(--muted); font-size: 12px; }
+  .msg-bar {
+    display: none; margin-bottom: 14px; padding: 9px 13px; border-radius: 9px; font-size: 13px;
+  }
+  .msg-bar.ok { display: block; color: #86efac; background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); }
+  .msg-bar.err { display: block; color: #fca5a5; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); }
+  .hint { font-size: 11.5px; color: var(--muted); }
+
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .modal-head h3 { font-size: 15px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .modal-body { padding: 16px 18px; font-size: 13.5px; }
+  .modal-body .field { margin-bottom: 12px; }
+  .modal-body .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
+  .modal-body input[type=password], .modal-body input[type=text] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 9px; padding: 9px 11px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .modal-foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  .check { display: flex; align-items: center; gap: 7px; font-size: 13px; margin-top: 8px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">👥 用户管理 <span class="sub">账号与实验环境</span></div>
+  <div class="top-actions">
+    <button class="btn" id="btnRefresh">⟳ 刷新</button>
+    <button class="btn" id="btnDocker">Docker 管理器 ↗</button>
+    <button class="btn" id="btnBigdata">大数据平台 ↗</button>
+    <button class="btn danger" id="btnLogout">退出登录</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="msg-bar" id="msgBar"></div>
+
+  <div class="panel">
+    <h3>新增用户</h3>
+    <div class="form-row">
+      <div class="field"><label>用户名（2-20 位字母/数字/下划线）</label>
+        <input id="newUsername" type="text" placeholder="如 zhangsan" style="width:190px"></div>
+      <div class="field"><label>初始密码（至少 6 位）</label>
+        <input id="newPassword" type="text" placeholder="告知学生首次登录用" style="width:190px"></div>
+      <div class="field"><label>角色</label>
+        <select id="newRole">
+          <option value="user">普通用户</option>
+          <option value="admin">管理员</option>
+        </select></div>
+      <button class="btn primary" id="btnCreate">创建账号</button>
+    </div>
+    <div class="hint" style="margin-top:8px">普通用户登录后自动获得一套与其他人完全隔离的容器环境（独立网络 / 独立端口段 / 独立数据目录）。</div>
+  </div>
+
+  <div class="panel">
+    <h3>用户列表</h3>
+    <table>
+      <thead><tr>
+        <th>UID</th><th>用户名</th><th>角色</th><th>状态</th>
+        <th>端口段</th><th>已创建环境</th><th>创建时间</th><th style="text-align:right">操作</th>
+      </tr></thead>
+      <tbody id="userRows"><tr><td colspan="8" class="hint" style="padding:20px;text-align:center">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-mask" id="pwdModal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="pwdTitle">重置密码</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>新密码（至少 6 位）</label><input type="password" id="resetPwd"></div>
+      <div class="hint">重置后该用户的所有已登录会话将立即失效。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn primary" id="pwdSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="delModal">
+  <div class="modal">
+    <div class="modal-head"><h3>删除用户</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body">
+      <div id="delText"></div>
+      <label class="check"><input type="checkbox" id="delStacks" checked>
+        同时销毁该用户的全部容器环境与数据（推荐）</label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn danger" id="delYes">删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  const $ = (s) => document.querySelector(s);
+
+  async function getJSON(path) {
+    const r = await fetch(API_BASE + path, { credentials: 'same-origin' });
+    return r.json();
+  }
+  async function postJSON(path, body) {
+    const r = await fetch(API_BASE + path, { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.json();
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  function showMsg(ok, text) {
+    const bar = $('#msgBar');
+    bar.className = 'msg-bar ' + (ok ? 'ok' : 'err');
+    bar.textContent = text;
+    clearTimeout(showMsg._t);
+    showMsg._t = setTimeout(() => { bar.className = 'msg-bar'; }, 6000);
+  }
+
+  let users = [];
+
+  async function loadUsers() {
+    const r = await getJSON('/api/admin/users');
+    if (!r.ok) { showMsg(false, r.error || '加载失败'); return; }
+    users = r.users || [];
+    render();
+  }
+
+  function render() {
+    const tb = $('#userRows');
+    if (!users.length) {
+      tb.innerHTML = '<tr><td colspan="8" class="hint" style="padding:20px;text-align:center">暂无用户</td></tr>';
+      return;
+    }
+    let h = '';
+    users.forEach((u) => {
+      const me = u.username === window.__me;
+      h += '<tr>' +
+        '<td class="mono">' + u.uid + '</td>' +
+        '<td class="mono">' + esc(u.username) + (me ? ' <span class="hint">(我)</span>' : '') + '</td>' +
+        '<td>' + (u.role === 'admin' ? '<span class="badge b-admin">管理员</span>' : '<span class="badge b-user">普通用户</span>') + '</td>' +
+        '<td>' + (u.disabled ? '<span class="badge b-off">已禁用</span>' : '<span class="badge b-ok">正常</span>') + '</td>' +
+        '<td class="mono">' + u.port_base + '-' + (u.port_base + 199) + '</td>' +
+        '<td class="stacks">' + (u.stacks && u.stacks.length ? esc(u.stacks.join(', ')) : '—') + '</td>' +
+        '<td class="hint">' + esc(u.created || '') + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' +
+          '<button class="btn sm" data-act="pwd" data-u="' + esc(u.username) + '">重置密码</button> ' +
+          '<button class="btn sm warn" data-act="toggle" data-u="' + esc(u.username) + '" data-on="' + (u.disabled ? '0' : '1') + '">' + (u.disabled ? '启用' : '禁用') + '</button> ' +
+          '<button class="btn sm danger" data-act="del" data-u="' + esc(u.username) + '">删除</button>' +
+        '</td>' +
+      '</tr>';
+    });
+    tb.innerHTML = h;
+  }
+
+  // ---- 新增 ----
+  $('#btnCreate').addEventListener('click', async () => {
+    const username = $('#newUsername').value.trim();
+    const password = $('#newPassword').value;
+    const role = $('#newRole').value;
+    const r = await postJSON('/api/admin/users', { username, password, role });
+    if (r.ok) {
+      showMsg(true, '已创建用户 ' + username + '（端口段 ' + r.user.port_base + '-' + (r.user.port_base + 199) + '）');
+      $('#newUsername').value = ''; $('#newPassword').value = '';
+      loadUsers();
+    } else showMsg(false, r.error || '创建失败');
+  });
+
+  // ---- 行操作 ----
+  let pwdTarget = null, delTarget = null;
+  $('#userRows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const act = b.dataset.act, u = b.dataset.u;
+    if (act === 'pwd') {
+      pwdTarget = u;
+      $('#pwdTitle').textContent = '重置密码 · ' + u;
+      $('#resetPwd').value = '';
+      $('#pwdModal').classList.add('show');
+    } else if (act === 'toggle') {
+      const disable = b.dataset.on === '1';
+      postJSON('/api/admin/users/disable', { username: u, disabled: disable }).then((r) => {
+        showMsg(r.ok, r.ok ? r.output : r.error);
+        loadUsers();
+      });
+    } else if (act === 'del') {
+      delTarget = u;
+      $('#delText').innerHTML = '确定删除用户 <b>' + esc(u) + '</b> 吗？<br><span class="hint">删除后该账号无法登录，账号记录不可恢复。</span>';
+      $('#delStacks').checked = true;
+      $('#delModal').classList.add('show');
+    }
+  });
+
+  $('#pwdSave').addEventListener('click', async () => {
+    const pwd = $('#resetPwd').value;
+    if (pwd.length < 6) { alert('密码至少 6 位'); return; }
+    const r = await postJSON('/api/admin/users/password', { username: pwdTarget, password: pwd });
+    $('#pwdModal').classList.remove('show');
+    showMsg(r.ok, r.ok ? r.output : r.error);
+  });
+
+  $('#delYes').addEventListener('click', async () => {
+    const r = await postJSON('/api/admin/users/delete', {
+      username: delTarget, destroy_stacks: $('#delStacks').checked });
+    $('#delModal').classList.remove('show');
+    showMsg(r.ok, r.ok ? r.output : r.error);
+    loadUsers();
+  });
+
+  document.querySelectorAll('.modal-close, [data-close]').forEach((b) =>
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.modal-mask').forEach((m) => m.classList.remove('show'));
+    }));
+
+  $('#btnRefresh').addEventListener('click', loadUsers);
+  $('#btnDocker').addEventListener('click', () => { location.href = '/'; });
+  $('#btnBigdata').addEventListener('click', () => { location.href = '/bigdata'; });
+  $('#btnLogout').addEventListener('click', async () => {
+    await postJSON('/api/auth/logout', {}).catch(() => {});
+    location.href = '/login';
+  });
+
+  // ---- 初始化：校验管理员会话 ----
+  (async function init() {
+    try {
+      const r = await fetch(API_BASE + '/api/auth/me', { credentials: 'same-origin' });
+      const me = await r.json();
+      if (!r.ok || !me.ok) { location.href = '/login'; return; }
+      if (me.role !== 'admin') { location.href = '/portal'; return; }
+      window.__me = me.username;
+      loadUsers();
+    } catch (e) {
+      location.href = '/login';
+    }
+  })();
+})();
+</script>
+</body>
+</html>

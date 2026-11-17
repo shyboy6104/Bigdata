@@ -8,21 +8,34 @@ Docker / 大数据平台管理器 - 本地转发脚本（零依赖，仅 Python 
 用法：
     python docker-relay.py [端口]        # 默认 8000
 然后浏览器打开：
-    http://127.0.0.1:8000             # 通用 Docker 管理器
-    http://127.0.0.1:8000/bigdata     # 大数据平台管理器
+    http://127.0.0.1:8000/login         # 登录页（多用户系统）
+    http://127.0.0.1:8000             # 通用 Docker 管理器（管理员）
+    http://127.0.0.1:8000/bigdata     # 大数据平台管理器（管理员）
+    http://127.0.0.1:8000/portal      # 普通用户门户（登录后）
+
+多用户体系：
+    - 首次启动自动创建管理员 admin（默认密码 admin123，请立即修改，或用环境变量 ADMIN_PASSWORD 指定）。
+    - 管理员在 /users 页面创建普通用户账号并设置/重置密码。
+    - 每个普通用户可独立启动一套大数据组件容器（项目名 bigdata-u<uid>），
+      容器名、网络、宿主机端口、数据目录全部按用户隔离，互不影响。
 
 大数据平台项目目录默认取本脚本的上一级目录（compose/dockerfile 所在），
 可通过环境变量 BIGDATA_PROJECT_DIR 覆盖。
 """
+import hashlib
 import json
 import os
 import re
+import secrets
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 
 # 端口：python docker-relay.py [端口] [主机]
@@ -35,7 +48,148 @@ TOKEN = os.environ.get("RELAY_TOKEN") or ""
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(HERE, "docker-manager.html")
 BIGDATA_INDEX = os.path.join(HERE, "bigdata-manager.html")
+LOGIN_PAGE = os.path.join(HERE, "login.html")
+PORTAL_PAGE = os.path.join(HERE, "user-portal.html")
+ADMIN_USERS_PAGE = os.path.join(HERE, "admin-users.html")
 PROJECT_DIR = os.environ.get("BIGDATA_PROJECT_DIR") or os.path.dirname(HERE)
+
+
+# ============================================================
+# 用户与会话（账号密码 + 角色权限）
+# ============================================================
+USERS_FILE = os.environ.get("BIGDATA_USERS_FILE") or os.path.join(HERE, "users.json")
+USERS = {"next_uid": 1, "users": []}
+USERS_LOCK = threading.RLock()
+SESSIONS = {}            # sid -> {uid, username, role, expires}
+SESSION_TTL = 12 * 3600  # 会话有效期 12 小时
+PBKDF2_ITERS = 120000
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{2,20}$")
+
+
+def _hash_pw(password, salt_hex):
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                               bytes.fromhex(salt_hex), PBKDF2_ITERS).hex()
+
+
+def load_users():
+    global USERS
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("users"), list):
+            USERS = data
+    except Exception:
+        USERS = {"next_uid": 1, "users": []}
+
+
+def save_users():
+    tmp = USERS_FILE + ".tmp"
+    with USERS_LOCK:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(USERS, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, USERS_FILE)
+
+
+def get_user(username):
+    with USERS_LOCK:
+        for u in USERS["users"]:
+            if u.get("username") == username:
+                return dict(u)
+    return None
+
+
+def create_user(username, password, role="user"):
+    username = (username or "").strip()
+    password = password or ""
+    if not USERNAME_RE.fullmatch(username):
+        return None, "用户名只能为 2-20 位字母/数字/下划线"
+    if len(password) < 6:
+        return None, "密码至少 6 位"
+    if role not in ("user", "admin"):
+        return None, "无效角色"
+    if get_user(username):
+        return None, "用户名已存在"
+    with USERS_LOCK:
+        uid = int(USERS.get("next_uid", 1))
+        USERS["next_uid"] = uid + 1
+        salt = secrets.token_hex(16)
+        rec = {
+            "uid": uid, "username": username, "role": role,
+            "salt": salt, "hash": _hash_pw(password, salt),
+            "port_base": USER_PORT_START + (uid - 1) * USER_PORTS_PER_USER,
+            "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "disabled": False,
+        }
+        USERS["users"].append(rec)
+    save_users()
+    return rec, None
+
+
+def verify_login(username, password):
+    rec = get_user(username or "")
+    if not rec:
+        return None
+    if rec.get("disabled"):
+        return None
+    if _hash_pw(password or "", rec.get("salt", "")) != rec.get("hash"):
+        return None
+    return rec
+
+
+def new_session(rec):
+    sid = secrets.token_hex(32)
+    SESSIONS[sid] = {"uid": rec["uid"], "username": rec["username"],
+                     "role": rec["role"], "expires": time.time() + SESSION_TTL}
+    return sid
+
+
+def session_user(sid):
+    if not sid:
+        return None
+    s = SESSIONS.get(sid)
+    if not s:
+        return None
+    if s["expires"] < time.time():
+        SESSIONS.pop(sid, None)
+        return None
+    return s
+
+
+def invalidate_sessions(uid=None, sid=None):
+    for k in list(SESSIONS.keys()):
+        if (uid is not None and SESSIONS[k]["uid"] == uid) or (sid is not None and k == sid):
+            SESSIONS.pop(k, None)
+
+
+def change_password(username, new_password):
+    rec = get_user(username)
+    if not rec:
+        return False, "用户不存在"
+    if len(new_password or "") < 6:
+        return False, "密码至少 6 位"
+    salt = secrets.token_hex(16)
+    with USERS_LOCK:
+        for u in USERS["users"]:
+            if u["username"] == username:
+                u["salt"] = salt
+                u["hash"] = _hash_pw(new_password, salt)
+    save_users()
+    invalidate_sessions(uid=rec["uid"])
+    return True, None
+
+
+def bootstrap_admin():
+    """首次启动：若无任何管理员，创建 admin（密码取 ADMIN_PASSWORD 或默认 admin123）。"""
+    with USERS_LOCK:
+        has_admin = any(u.get("role") == "admin" for u in USERS["users"])
+    if has_admin:
+        return
+    pwd = os.environ.get("ADMIN_PASSWORD") or "admin123"
+    rec, err = create_user("admin", pwd, "admin")
+    if rec:
+        print("  [初始化] 已创建管理员账号：admin / %s  ← 请立即登录并修改默认密码！" % pwd)
+    else:
+        print("  [初始化] 管理员创建失败：%s" % err)
 
 
 # ============================================================
@@ -298,11 +452,11 @@ TASK_LOCK = threading.Lock()
 TASK_SEQ = [0]
 
 
-def start_task(run_fn):
+def start_task(run_fn, owner="admin"):
     with TASK_LOCK:
         TASK_SEQ[0] += 1
         tid = str(TASK_SEQ[0])
-    task = {"id": tid, "running": True, "code": None, "out": []}
+    task = {"id": tid, "running": True, "code": None, "out": [], "owner": owner}
     TASKS[tid] = task
 
     def emit(s):
@@ -616,7 +770,491 @@ def api_exec_shell(body):
 
 
 # ============================================================
-# 路由表
+# 用户专属容器栈（按用户隔离：项目名 / 容器名 / 网络 / 端口 / 数据目录）
+# ============================================================
+# 端口分配：每用户 200 个端口（块基 = 20000 + (uid-1)*200），
+# 每组件预留 20 个槽位：新宿主机端口 = 块基 + 组件索引*20 + 槽位号。
+USER_PORT_START = 20000
+USER_PORTS_PER_USER = 200
+PORTS_PER_COMP = 20
+STACK_ROOT = os.path.join(PROJECT_DIR, "stacks")
+COMP_INDEX = {c: i for i, c in enumerate(COMPONENTS)}
+PORT_MAP_RE = re.compile(r'^(\s*)-\s*"?(\d{2,5}):(\d{2,5})"?(\s*#.*)?$')
+CONTAINER_NAME_RE = re.compile(r'^(\s*container_name:\s*)([A-Za-z0-9_.\-]+)(.*)$')
+CONFIG_BIND_RE = re.compile(r'^(\s*-\s+)(\./config/.+)$')
+
+
+def user_project(rec):
+    return "bigdata-u%d" % rec["uid"]
+
+
+def user_network(rec):
+    return "bigdata-u%d-net" % rec["uid"]
+
+
+def ensure_network(name):
+    r = subprocess.run(["docker", "network", "inspect", name],
+                       capture_output=True, encoding="utf-8", errors="replace")
+    if r.returncode == 0:
+        return True, "网络已存在：%s" % name
+    c = subprocess.run(["docker", "network", "create", name],
+                       capture_output=True, encoding="utf-8", errors="replace")
+    if c.returncode == 0:
+        return True, "网络已创建：%s" % name
+    return False, "网络创建失败：%s" % (c.stderr.strip() or "unknown")
+
+
+def stack_dir(rec):
+    return os.path.join(STACK_ROOT, rec["username"])
+
+
+def stack_compose(rec, component):
+    return os.path.join(stack_dir(rec), "docker-compose.%s.yml" % component)
+
+
+def generate_user_compose(rec, component):
+    """从原始组件 compose 生成用户专属副本。改写规则：
+    1. container_name: X        -> u<uid>-X   （容器名全局唯一）
+    2. bigdata-net              -> bigdata-u<uid>-net（独立外部网络，用户间不互通）
+    3. ports 块宿主机端口         -> 用户端口块内的新端口（容器端口不动，配置不受影响）
+    4. - ./config/...           -> - ../config/...（共享只读配置，仍指向项目 config/）
+       - ./data/...             保持相对路径（落到 stacks/<用户>/data/，按用户隔离）
+    """
+    src = os.path.join(PROJECT_DIR, SINGLE_COMPOSE[component])
+    if not os.path.exists(src):
+        return None, "组件 Compose 文件不存在：%s" % SINGLE_COMPOSE[component]
+    with open(src, "r", encoding="utf-8") as f:
+        text = f.read()
+    uid = rec["uid"]
+    base = rec["port_base"] + COMP_INDEX.get(component, 0) * PORTS_PER_COMP
+    out, slot = [], 0
+    in_ports, ports_indent = False, 0
+    for line in text.splitlines():
+        m = CONTAINER_NAME_RE.match(line)
+        if m and not m.group(2).startswith("u%d-" % uid):
+            line = m.group(1) + "u%d-" % uid + m.group(2) + (m.group(3) or "")
+        if "bigdata-net" in line:
+            line = line.replace("bigdata-net", user_network(rec))
+        stripped = line.strip()
+        if in_ports:
+            pm = PORT_MAP_RE.match(line)
+            if pm:
+                if slot >= PORTS_PER_COMP:
+                    return None, "组件 %s 发布端口超过 %d 个，无法分配" % (component, PORTS_PER_COMP)
+                target = int(pm.group(3))
+                new_host = base + slot
+                slot += 1
+                line = '%s- "%d:%d"%s' % (pm.group(1), new_host, target, pm.group(4) or "")
+            elif stripped and not stripped.startswith("#"):
+                indent = len(line) - len(line.lstrip())
+                if indent <= ports_indent:
+                    in_ports = False
+        elif line.lstrip().startswith("ports:"):
+            in_ports = True
+            ports_indent = len(line) - len(line.lstrip())
+        if not in_ports:
+            bm = CONFIG_BIND_RE.match(line)
+            if bm:
+                line = bm.group(1) + "../../" + bm.group(2)
+        out.append(line)
+    os.makedirs(stack_dir(rec), exist_ok=True)
+    dst = stack_compose(rec, component)
+    with open(dst, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(out) + "\n")
+    return dst, None
+
+
+def compose_run(rec, args, emit=None, timeout=None):
+    """以用户项目名执行 docker compose 子命令。"""
+    cmd = ["docker", "compose"] + args
+    if emit:
+        return run_stream(cmd, emit, cwd=stack_dir(rec))
+    ok, out, err = run_cmd(cmd, cwd=stack_dir(rec), timeout=timeout or 60)
+    return (1 if not ok else 0), out, err
+
+
+def stack_compose_args(rec, component):
+    f = stack_compose(rec, component)
+    if not os.path.exists(f):
+        return None, "尚未创建用户栈，请先启动组件 %s" % component
+    return ["-f", f, "-p", user_project(rec)], None
+
+
+# 组件依赖：启动某组件前必须先启动其前置组件（同一用户的所有组件共享其专属网络，
+# 服务名如 namenode / zoo1 / mysql 在网络内可按主机名解析）。
+# "__HDFS__" 按 config/environment.conf 的 HADOOP_ENVIRONMENT 动态解析为 hadoop 或 hadoop-ha。
+COMPONENT_DEPS = {
+    "spark": ["__HDFS__"],
+    "hive": ["__HDFS__", "mysql"],
+    "hbase": ["__HDFS__", "zookeeper"],
+    "kafka": ["zookeeper"],
+    "flume": ["kafka"],
+}
+
+
+def read_hadoop_environment():
+    path = os.path.join(PROJECT_DIR, "config", "environment.conf")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith("#") and "=" in s:
+                    k, v = s.split("=", 1)
+                    if k.strip() == "HADOOP_ENVIRONMENT":
+                        return v.strip().strip('"').strip("'").lower()
+    except Exception:
+        pass
+    return "standard"
+
+
+def component_deps(component):
+    """返回按拓扑顺序排列的前置组件列表（不含 component 自身）。"""
+    hdfs = "hadoop-ha" if read_hadoop_environment() == "ha" else "hadoop"
+
+    def resolve(c, seen):
+        if c in seen:
+            return []
+        seen.add(c)
+        out = []
+        for d in COMPONENT_DEPS.get(c, []):
+            out += resolve(hdfs if d == "__HDFS__" else d, seen)
+        return out + [c]
+    return resolve(component, set())[:-1]
+
+
+def stack_services(rec, args):
+    """该用户组件 compose 文件定义的服务名（用于把同一项目下其他组件的容器过滤掉）。"""
+    r = subprocess.run(["docker", "compose"] + args + ["config", "--services"],
+                       cwd=stack_dir(rec), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        return []
+    return [s.strip() for s in r.stdout.splitlines() if s.strip()]
+
+
+def stack_is_running(rec, component, args):
+    r = subprocess.run(["docker", "compose"] + args + ["ps", "-a", "--format", "json"],
+                       cwd=stack_dir(rec), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        return False
+    services = stack_services(rec, args)
+    arr = [x for x in parse_ndjson(r.stdout)
+           if not services or x.get("Service") in services]
+    return bool(arr) and all(x.get("State") == "running" for x in arr)
+
+
+def api_portal_stacks(rec):
+    """当前用户全部组件栈状态（仅统计已生成过的栈）。"""
+    stacks = {}
+    for comp in COMPONENTS:
+        args, err = stack_compose_args(rec, comp)
+        if not args:
+            stacks[comp] = {"created": False, "running": False, "containers": []}
+            continue
+        services = stack_services(rec, args)
+        r = subprocess.run(["docker", "compose"] + args + ["ps", "-a", "--format", "json"],
+                           cwd=stack_dir(rec), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        containers = []
+        if r.returncode == 0:
+            for x in parse_ndjson(r.stdout):
+                if services and x.get("Service", "") not in services:
+                    continue  # 同项目下其他组件的容器，不属于本卡片
+                containers.append({
+                    "name": x.get("Name", ""), "id": x.get("ID", ""),
+                    "service": x.get("Service", ""), "state": x.get("State", ""),
+                    "status": x.get("Status", ""), "ports": parse_publishers(x),
+                })
+        stacks[comp] = {"created": True,
+                        "running": any(c["state"] == "running" for c in containers),
+                        "containers": containers}
+    return {"ok": True, "stacks": stacks}
+
+
+# ============================================================
+# 用户容器内执行命令（Web 终端，等价于 docker exec，仅能进入本人容器）
+# ============================================================
+EXEC_PWD_MARK = "__BIGDATA_PWD_9c2f__"
+
+
+def user_container_allowed(rec, container):
+    """严格校验容器归属：必须由本人 compose 项目创建、且当前正在运行。
+
+    三重校验：容器名前缀 u<uid>- ；com.docker.compose.project / .service 标签
+    证明它由本人 compose 项目创建；inspect 返回的真实容器名与传入一致。
+    防止普通用户 exec 到他人容器、宿主机主平台容器或手工伪造的同名容器。
+    """
+    if not container or not re.fullmatch(r"[A-Za-z0-9_.\-]+", container):
+        return False, "非法容器名"
+    if not container.startswith("u%d-" % rec["uid"]):
+        return False, "只能进入自己实验环境的容器"
+    fmt = ('{{index .Config.Labels "com.docker.compose.project"}}|'
+           '{{index .Config.Labels "com.docker.compose.service"}}|'
+           '{{.State.Running}}|{{.Name}}')
+    try:
+        p = subprocess.run(["docker", "inspect", "--format", fmt, container],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=15)
+    except Exception as e:
+        return False, "无法读取容器信息：" + str(e)
+    if p.returncode != 0:
+        return False, "容器不存在或已销毁"
+    parts = (p.stdout or "").strip().split("|")
+    if len(parts) < 4:
+        return False, "该容器不属于你的实验环境"
+    project, service, running, real_name = (x.strip() for x in parts[:4])
+    if project != user_project(rec) or not service or service == "<no value>":
+        return False, "该容器不属于你的实验环境"
+    if running != "true":
+        return False, "容器未运行，请先启动对应组件"
+    if real_name.lstrip("/") != container:
+        return False, "容器名不匹配"
+    return True, ""
+
+
+def api_portal_exec_container(rec, body):
+    """在用户自己的容器内执行一条命令，返回输出、退出码与执行后的工作目录。
+
+    每条命令是一次独立的 docker exec（非持久 TTY）；用 cd 恢复上次目录，
+    并在输出末尾以标记回传 $PWD，前端据此保留 cd 状态。
+    命令字符串作为 argv 交给容器内 shell，不经过宿主机 shell，不会注入宿主机。
+    """
+    container = (body.get("container") or "").strip()
+    command = body.get("command") or ""
+    cwd = (body.get("cwd") or "/").strip() or "/"
+    if not cwd.startswith("/"):
+        cwd = "/"
+    try:
+        timeout = int(body.get("timeout") or 30)
+    except (TypeError, ValueError):
+        timeout = 30
+    timeout = max(5, min(timeout, 120))
+
+    allowed, err = user_container_allowed(rec, container)
+    if not allowed:
+        return {"ok": False, "error": err}
+    if not command.strip():
+        return {"ok": False, "error": "命令不能为空"}
+    if len(command) > 8000:
+        return {"ok": False, "error": "命令过长（上限 8000 字符）"}
+
+    script = ("cd -- %s 2>/dev/null || cd /\n" % shlex.quote(cwd)) + command + \
+             "\n__bd_rc=$?\nprintf '\\n" + EXEC_PWD_MARK + "%s\\n' \"$PWD\"\nexit $__bd_rc"
+    base = ["docker", "exec", "-i", container]
+    p = None
+    for shell in (["bash", "-lc", script], ["sh", "-c", script]):
+        try:
+            p = subprocess.run(base + shell, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               timeout=timeout, encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "命令执行超时（%d 秒），已中断" % timeout, "cwd": cwd}
+        except FileNotFoundError:
+            return {"ok": False, "error": "未找到 docker 命令，请确认已安装并加入 PATH"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        out = p.stdout or ""
+        # 极少数镜像没有 bash，回退到 sh 重试
+        if p.returncode in (126, 127) and "bash" in out and \
+                ("not found" in out or "No such file" in out):
+            continue
+        break
+
+    out = (p.stdout or "").replace("\r\n", "\n")
+    m = None
+    for m in re.finditer(r"\n" + re.escape(EXEC_PWD_MARK) + r"([^\n]*)\n?", out):
+        pass
+    if m:
+        cand = m.group(1).strip()
+        if cand.startswith("/"):
+            cwd = cand
+        out = out[:m.start()]  # 去掉内部标记行
+    return {"ok": True, "code": p.returncode, "output": out.rstrip("\n"),
+            "cwd": cwd, "container": container}
+
+
+def build_portal_run_fn(rec, op, component, tail):
+    """用户栈操作：start/stop/restart/destroy/clean/logs。"""
+    def _fail(emit, msg):
+        emit("[ERROR] %s\n" % msg)
+        return 1
+
+    if op == "start":
+        def _start(emit):
+            proj = user_project(rec)
+            net = user_network(rec)
+            # 自动按依赖顺序先启动前置组件（如 spark 需先启动 hadoop，否则其入口脚本
+            # 会等待 HDFS 约 3 分钟），已全部运行则跳过。
+            deps = component_deps(component)
+            if deps:
+                emit("[依赖] 组件 %s 需先启动：%s\n" % (component, " → ".join(deps)))
+            for dep in deps:
+                f, err = generate_user_compose(rec, dep)
+                if not f:
+                    return _fail(emit, err)
+                dep_args = ["-f", f, "-p", proj]
+                okn, msgn = ensure_network(net)
+                if not okn:
+                    return _fail(emit, msgn)
+                if stack_is_running(rec, dep, dep_args):
+                    emit("[依赖] %s 已在运行，跳过\n" % dep)
+                    continue
+                emit("[依赖] 正在启动 %s …\n" % dep)
+                if run_stream(["docker", "compose"] + dep_args + ["up", "-d"],
+                              emit, cwd=stack_dir(rec)) != 0:
+                    return _fail(emit, "依赖组件 %s 启动失败，已中止 %s" % (dep, component))
+            f, err = generate_user_compose(rec, component)
+            if not f:
+                return _fail(emit, err)
+            args = ["-f", f, "-p", proj]
+            okn, msgn = ensure_network(net)
+            emit("[INFO] %s\n" % msgn)
+            if not okn:
+                return _fail(emit, msgn)
+            emit("[INFO] 用户 %s 的 %s 栈：宿主机端口段 %d-%d\n" % (
+                rec["username"], component, rec["port_base"], rec["port_base"] + USER_PORTS_PER_USER - 1))
+            return run_stream(["docker", "compose"] + args + ["up", "-d"], emit, cwd=stack_dir(rec))
+        return _start
+
+    if op in ("stop", "destroy", "clean", "restart", "logs"):
+        def _op(emit):
+            args, err = stack_compose_args(rec, component)
+            if not args:
+                return _fail(emit, err)
+            if op == "stop":
+                return run_stream(["docker", "compose"] + args + ["stop"], emit, cwd=stack_dir(rec))
+            if op == "destroy":
+                return run_stream(["docker", "compose"] + args + ["down"], emit, cwd=stack_dir(rec))
+            if op == "clean":
+                return run_stream(["docker", "compose"] + args + ["down", "-v"], emit, cwd=stack_dir(rec))
+            if op == "logs":
+                return run_stream(["docker", "compose"] + args + ["logs", "--tail", str(tail or 200)],
+                                  emit, cwd=stack_dir(rec))
+            c1 = run_stream(["docker", "compose"] + args + ["stop"], emit, cwd=stack_dir(rec))
+            c2 = run_stream(["docker", "compose"] + args + ["up", "-d"], emit, cwd=stack_dir(rec))
+            return c2 if c2 != 0 else c1
+        return _op
+
+    return lambda emit: _fail(emit, "未知操作：%s" % op)
+
+
+def destroy_user_stacks(rec, emit=None):
+    """删除用户全部容器栈（down -v）、网络与 stacks/<用户>/ 目录。"""
+    failed = []
+    d = stack_dir(rec)
+    if os.path.isdir(d):
+        for fn in os.listdir(d):
+            if not fn.startswith("docker-compose.") or not fn.endswith(".yml"):
+                continue
+            comp = fn[len("docker-compose."):-len(".yml")]
+            args, _ = stack_compose_args(rec, comp)
+            if not args:
+                continue
+            if emit:
+                emit("[INFO] 销毁用户 %s 的 %s 栈\n" % (rec["username"], comp))
+            cmd = ["docker", "compose"] + args + ["down", "-v"]
+            if emit:
+                code = run_stream(cmd, emit, cwd=d)
+            else:
+                ok, _, _err = run_cmd(cmd, cwd=d, timeout=120)
+                code = 0 if ok else 1
+            if code != 0:
+                failed.append(comp)
+    r = subprocess.run(["docker", "network", "inspect", user_network(rec)], capture_output=True)
+    if r.returncode == 0:
+        subprocess.run(["docker", "network", "rm", user_network(rec)], capture_output=True)
+    if os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
+    return failed
+
+
+# ============================================================
+# 管理员：用户管理接口
+# ============================================================
+def public_user(rec):
+    return {"uid": rec["uid"], "username": rec["username"], "role": rec["role"],
+            "port_base": rec["port_base"], "created": rec.get("created", ""),
+            "disabled": bool(rec.get("disabled"))}
+
+
+def api_admin_users_list():
+    with USERS_LOCK:
+        items = [public_user(u) for u in USERS["users"]]
+    for it in items:
+        d = os.path.join(STACK_ROOT, it["username"])
+        it["stacks"] = sorted(fn[len("docker-compose."):-len(".yml")]
+                              for fn in os.listdir(d)
+                              if fn.startswith("docker-compose.") and fn.endswith(".yml")) \
+            if os.path.isdir(d) else []
+    return {"ok": True, "users": items}
+
+
+def api_admin_user_create(body):
+    b = body or {}
+    rec, err = create_user(b.get("username", ""), b.get("password", ""), b.get("role", "user"))
+    if not rec:
+        return {"ok": False, "error": err}
+    return {"ok": True, "user": public_user(rec)}
+
+
+def api_admin_user_password(body):
+    b = body or {}
+    username = (b.get("username") or "").strip()
+    if not get_user(username):
+        return {"ok": False, "error": "用户不存在"}
+    ok, err = change_password(username, b.get("password", ""))
+    if not ok:
+        return {"ok": False, "error": err}
+    return {"ok": True, "output": "已重置 %s 的密码（其所有会话已失效）" % username}
+
+
+def api_admin_user_disable(body):
+    b = body or {}
+    username = (b.get("username") or "").strip()
+    rec = get_user(username)
+    if not rec:
+        return {"ok": False, "error": "用户不存在"}
+    disabled = bool(b.get("disabled", True))
+    if rec["role"] == "admin" and disabled:
+        with USERS_LOCK:
+            admins = [u for u in USERS["users"] if u["role"] == "admin" and not u.get("disabled")]
+        if len(admins) <= 1:
+            return {"ok": False, "error": "不能禁用唯一的管理员"}
+    with USERS_LOCK:
+        for u in USERS["users"]:
+            if u["username"] == username:
+                u["disabled"] = disabled
+    save_users()
+    if disabled:
+        invalidate_sessions(uid=rec["uid"])
+    return {"ok": True, "output": "%s 已%s" % (username, "禁用" if disabled else "启用")}
+
+
+def api_admin_user_delete(body):
+    b = body or {}
+    username = (b.get("username") or "").strip()
+    rec = get_user(username)
+    if not rec:
+        return {"ok": False, "error": "用户不存在"}
+    if rec["role"] == "admin":
+        with USERS_LOCK:
+            admins = [u for u in USERS["users"] if u["role"] == "admin"]
+        if len(admins) <= 1:
+            return {"ok": False, "error": "不能删除唯一的管理员"}
+    failed = []
+    if b.get("destroy_stacks"):
+        failed = destroy_user_stacks(rec)
+    with USERS_LOCK:
+        USERS["users"] = [u for u in USERS["users"] if u["username"] != username]
+    save_users()
+    invalidate_sessions(uid=rec["uid"])
+    msg = "已删除用户 %s" % username
+    if b.get("destroy_stacks"):
+        msg += "（容器栈已销毁%s）" % ("，失败组件：" + ",".join(failed) if failed else "")
+    return {"ok": True, "output": msg}
+# ============================================================
+# 路由表（通用 Docker 管理，仅管理员可用）
 # ============================================================
 ROUTES = {
     "ping": lambda b: api_ping(),
@@ -633,19 +1271,47 @@ ROUTES = {
     "remove": lambda b: api_container_action("remove", b),
 }
 
+TOKEN_ADMIN = {"uid": 0, "username": "(token)", "role": "admin"}
+
 
 class Handler(BaseHTTPRequestHandler):
-    def _auth_ok(self):
-        """未设置 TOKEN 时一律放行；设置后要求请求带 ?token= 或 X-Relay-Token 头。"""
-        if not TOKEN:
-            return True
-        t = self.headers.get("X-Relay-Token", "")
-        if not t:
-            qs = parse_qs(urlparse(self.path).query)
-            t = (qs.get("token") or [""])[0]
-        return t == TOKEN
+    # ---- 鉴权：会话 Cookie 优先；设置了 RELAY_TOKEN 且请求带正确 token 时视作管理员 ----
+    def _sid(self):
+        try:
+            c = SimpleCookie(self.headers.get("Cookie", ""))
+            if "sid" in c:
+                return c["sid"].value
+        except Exception:
+            pass
+        qs = parse_qs(urlparse(self.path).query)
+        return (qs.get("sid") or [""])[0]
 
-    def _send(self, code, obj):
+    def _current(self):
+        """返回当前身份 dict 或 None。"""
+        u = session_user(self._sid())
+        if u:
+            return u
+        if TOKEN:
+            t = self.headers.get("X-Relay-Token", "")
+            if not t:
+                qs = parse_qs(urlparse(self.path).query)
+                t = (qs.get("token") or [""])[0]
+            if t == TOKEN:
+                return dict(TOKEN_ADMIN)
+        return None
+
+    def _require(self, role=None):
+        """返回 (身份, 错误响应)。身份为 None 时已写好 401/403 响应。"""
+        cur = self._current()
+        if not cur:
+            self._send(401, {"ok": False, "error": "未登录，请先访问 /login"})
+            return None, True
+        if role == "admin" and cur.get("role") != "admin":
+            self._send(403, {"ok": False, "error": "需要管理员权限"})
+            return None, True
+        return cur, None
+
+    def _send(self, code, obj, set_cookie=None):
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -653,6 +1319,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        if set_cookie:
+            self.send_header("Set-Cookie", set_cookie)
         self.end_headers()
         self.wfile.write(data)
 
@@ -662,10 +1330,29 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
         else:
             self._send(404, {"ok": False, "error": "页面文件不存在"})
+
+    def _read_body(self):
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            if n:
+                return json.loads(self.rfile.read(n).decode("utf-8"))
+        except Exception:
+            pass
+        return {}
+
+    def _task_result(self, tid, cur):
+        task = TASKS.get(tid)
+        if not task:
+            return self._send(404, {"ok": False, "error": "任务不存在"})
+        if cur.get("role") != "admin" and task.get("owner") != cur.get("uid"):
+            return self._send(403, {"ok": False, "error": "无权查看该任务"})
+        return self._send(200, {"ok": True, "running": task["running"],
+                                "code": task["code"], "output": "".join(task["out"])})
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -674,32 +1361,73 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    # ---- GET ----
     def do_GET(self):
-        if not self._auth_ok():
-            return self._send(401, {"ok": False, "error": "未授权：缺少或错误的 token"})
         u = urlparse(self.path)
         path = u.path
         qs = parse_qs(u.query)
 
+        # 页面（鉴权由页面内 JS 调 /api/auth/me 后跳转完成）
+        if path == "/login":
+            return self._send_file(LOGIN_PAGE)
+        if path == "/portal":
+            return self._send_file(PORTAL_PAGE)
+        if path == "/users":
+            return self._send_file(ADMIN_USERS_PAGE)
         if path in ("/", "/index.html", "/docker-manager.html"):
             return self._send_file(INDEX)
         if path in ("/bigdata", "/bigdata.html"):
             return self._send_file(BIGDATA_INDEX)
 
+        # ---- API ----
+        if path == "/api/auth/me":
+            cur = self._current()
+            if not cur:
+                return self._send(401, {"ok": False, "error": "未登录"})
+            return self._send(200, {"ok": True, "username": cur["username"],
+                                    "role": cur["role"], "uid": cur.get("uid")})
+
+        if path == "/api/portal/stacks":
+            cur, err = self._require()
+            if err:
+                return
+            rec = get_user(cur["username"])
+            if not rec:
+                return self._send(401, {"ok": False, "error": "账号已不存在"})
+            return self._send(200, api_portal_stacks(rec))
+
+        if path.startswith("/api/portal/task/"):
+            cur, err = self._require()
+            if err:
+                return
+            return self._task_result(path[len("/api/portal/task/"):], cur)
+
         if path.startswith("/api/bigdata/task/"):
-            tid = path[len("/api/bigdata/task/"):]
-            task = TASKS.get(tid)
-            if not task:
-                return self._send(404, {"ok": False, "error": "任务不存在"})
-            return self._send(200, {"ok": True, "running": task["running"],
-                                    "code": task["code"], "output": "".join(task["out"])})
+            cur, err = self._require("admin")
+            if err:
+                return
+            return self._task_result(path[len("/api/bigdata/task/"):], cur)
 
         if path == "/api/bigdata/status":
+            cur, err = self._require("admin")
+            if err:
+                return
             component = (qs.get("component") or ["all"])[0]
             arch = (qs.get("arch") or ["single"])[0]
             return self._send(200, api_bigdata_status(component, arch))
 
+        if path.startswith("/api/admin/"):
+            cur, err = self._require("admin")
+            if err:
+                return
+            if path == "/api/admin/users":
+                return self._send(200, api_admin_users_list())
+            return self._send(404, {"ok": False, "error": "未知接口: " + path})
+
         if path.startswith("/api/"):
+            cur, err = self._require("admin")
+            if err:
+                return
             name = path[len("/api/"):]
             fn = ROUTES.get(name)
             if fn:
@@ -708,20 +1436,101 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send(404, {"ok": False, "error": "not found"})
 
+    # ---- POST ----
     def do_POST(self):
-        if not self._auth_ok():
-            return self._send(401, {"ok": False, "error": "未授权：缺少或错误的 token"})
         u = urlparse(self.path)
         path = u.path
 
+        # 登录（无需鉴权）
+        if path == "/api/auth/login":
+            body = self._read_body()
+            username = (body.get("username") or "").strip()
+            rec = verify_login(username, body.get("password") or "")
+            if not rec:
+                time.sleep(0.6)  # 失败延迟，减缓暴力破解
+                return self._send(401, {"ok": False, "error": "用户名或密码错误（账号也可能被禁用）"})
+            sid = new_session(rec)
+            cookie = "sid=%s; Path=/; HttpOnly; Max-Age=%d; SameSite=Lax" % (sid, SESSION_TTL)
+            return self._send(200, {"ok": True, "username": rec["username"],
+                                    "role": rec["role"], "uid": rec["uid"]}, set_cookie=cookie)
+
+        if path == "/api/auth/logout":
+            sid = self._sid()
+            invalidate_sessions(sid=sid)
+            return self._send(200, {"ok": True,
+                                    "output": "已退出登录"},
+                              set_cookie="sid=; Path=/; Max-Age=0; SameSite=Lax")
+
+        # 自助修改密码
+        if path == "/api/auth/password":
+            cur, err = self._require()
+            if err:
+                return
+            body = self._read_body()
+            rec = verify_login(cur["username"], body.get("old") or "")
+            if not rec:
+                return self._send(400, {"ok": False, "error": "原密码错误"})
+            ok, msg = change_password(cur["username"], body.get("new") or "")
+            if not ok:
+                return self._send(400, {"ok": False, "error": msg})
+            return self._send(200, {"ok": True, "output": "密码已修改，请重新登录"},
+                              set_cookie="sid=; Path=/; Max-Age=0; SameSite=Lax")
+
+        # 用户门户：操作自己的容器栈
+        if path == "/api/portal/exec":
+            cur, err = self._require()
+            if err:
+                return
+            rec = get_user(cur["username"])
+            if not rec:
+                return self._send(401, {"ok": False, "error": "账号已不存在"})
+            if rec.get("disabled"):
+                return self._send(403, {"ok": False, "error": "账号已被禁用"})
+            body = self._read_body()
+            op = body.get("op", "")
+            component = body.get("component", "")
+            tail = body.get("tail", 200)
+            if op not in ("start", "stop", "restart", "destroy", "clean", "logs"):
+                return self._send(400, {"ok": False, "error": "未知操作：" + op})
+            if component not in COMPONENTS:
+                return self._send(400, {"ok": False, "error": "无效组件：" + component})
+            tid = start_task(build_portal_run_fn(rec, op, component, tail), owner=rec["uid"])
+            return self._send(200, {"ok": True, "task_id": tid})
+
+        # 用户门户：在自己的容器内执行命令（Web 终端）
+        if path == "/api/portal/exec-container":
+            cur, err = self._require()
+            if err:
+                return
+            rec = get_user(cur["username"])
+            if not rec:
+                return self._send(401, {"ok": False, "error": "账号已不存在"})
+            if rec.get("disabled"):
+                return self._send(403, {"ok": False, "error": "账号已被禁用"})
+            return self._send(200, api_portal_exec_container(rec, self._read_body()))
+
+        # 管理员：用户管理
+        if path.startswith("/api/admin/users"):
+            cur, err = self._require("admin")
+            if err:
+                return
+            body = self._read_body()
+            if path == "/api/admin/users":
+                return self._send(200, api_admin_user_create(body))
+            if path == "/api/admin/users/password":
+                return self._send(200, api_admin_user_password(body))
+            if path == "/api/admin/users/disable":
+                return self._send(200, api_admin_user_disable(body))
+            if path == "/api/admin/users/delete":
+                return self._send(200, api_admin_user_delete(body))
+            return self._send(404, {"ok": False, "error": "未知接口: " + path})
+
+        # 管理员：大数据平台 / 通用 Docker 操作
         if path == "/api/bigdata/exec":
-            body = {}
-            try:
-                n = int(self.headers.get("Content-Length", 0))
-                if n:
-                    body = json.loads(self.rfile.read(n).decode("utf-8"))
-            except Exception:
-                body = {}
+            cur, err = self._require("admin")
+            if err:
+                return
+            body = self._read_body()
             op = body.get("op", "")
             component = body.get("component", "all")
             arch = body.get("arch", "single")
@@ -734,56 +1543,51 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"ok": False, "error": "无效架构：" + arch})
             if arch == "single" and component not in COMPONENTS:
                 return self._send(400, {"ok": False, "error": "无效组件：" + component})
-            tid = start_task(build_run_fn(op, component, arch, tail))
+            tid = start_task(build_run_fn(op, component, arch, tail), owner="admin")
             return self._send(200, {"ok": True, "task_id": tid})
 
         if path == "/api/bigdata/exec-shell":
-            body = {}
+            cur, err = self._require("admin")
+            if err:
+                return
+            return self._send(200, api_exec_shell(self._read_body()))
+
+        if path.startswith("/api/"):
+            cur, err = self._require("admin")
+            if err:
+                return
+            name = path[len("/api/"):]
+            fn = ROUTES.get(name)
+            if not fn:
+                return self._send(404, {"ok": False, "error": "未知接口: " + name})
             try:
-                n = int(self.headers.get("Content-Length", 0))
-                if n:
-                    body = json.loads(self.rfile.read(n).decode("utf-8"))
-            except Exception:
-                body = {}
-            return self._send(200, api_exec_shell(body))
+                self._send(200, fn(self._read_body()))
+            except Exception as e:
+                self._send(500, {"ok": False, "error": str(e)})
+            return
 
-        if not path.startswith("/api/"):
-            return self._send(404, {"ok": False, "error": "not found"})
-
-        name = path[len("/api/"):]
-        fn = ROUTES.get(name)
-        if not fn:
-            return self._send(404, {"ok": False, "error": "未知接口: " + name})
-        body = {}
-        try:
-            n = int(self.headers.get("Content-Length", 0))
-            if n:
-                body = json.loads(self.rfile.read(n).decode("utf-8"))
-        except Exception:
-            body = {}
-        try:
-            self._send(200, fn(body))
-        except Exception as e:
-            self._send(500, {"ok": False, "error": str(e)})
+        self._send(404, {"ok": False, "error": "not found"})
 
     def log_message(self, *a):
         pass
 
 
 if __name__ == "__main__":
-    print("Docker 管理器已启动")
+    load_users()
+    bootstrap_admin()
+    print("Docker 管理器已启动（多用户版）")
+    print("  登录页：  http://127.0.0.1:%d/login" % PORT)
     print("  本机：    http://127.0.0.1:%d" % PORT)
     print("  大数据：  http://127.0.0.1:%d/bigdata" % PORT)
+    print("  用户门户：http://127.0.0.1:%d/portal" % PORT)
     if HOST == "0.0.0.0":
         print("  监听：    0.0.0.0（局域网可访问）")
         for ip in get_lan_ips():
-            print("  局域网：  http://%s:%d   （大数据：/bigdata）" % (ip, PORT))
-        if not TOKEN:
-            print("  ⚠ 未设置 RELAY_TOKEN，局域网内任何人均可操作 Docker，建议设置访问令牌！")
+            print("  局域网：  http://%s:%d/login" % (ip, PORT))
     else:
         print("  监听：    %s（仅本机）" % HOST)
     if TOKEN:
-        print("  访问令牌：已启用（页面请带 ?token=xxx，API 请带头 X-Relay-Token）")
+        print("  访问令牌：RELAY_TOKEN 已设置（带 X-Relay-Token 的请求视作管理员）")
     print("  项目目录：%s" % PROJECT_DIR)
     print("按 Ctrl+C 停止")
     server = ThreadingHTTPServer((HOST, PORT), Handler)

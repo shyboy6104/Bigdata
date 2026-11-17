@@ -182,7 +182,9 @@
     <div class="stat">镜像<span><b id="statImages">-</b></span></div>
   </div>
   <a class="btn" id="linkBigdata" href="/bigdata" title="打开大数据平台管理页面" style="text-decoration:none; color:var(--cyan);">📊 大数据平台</a>
+  <a class="btn" id="linkUsers" href="/users" title="用户管理（创建/管理普通用户账号）" style="text-decoration:none; color:var(--amber);">👥 用户管理</a>
   <button class="btn" id="btnRefresh" title="刷新"><span id="refreshIcon">⟳</span> 刷新</button>
+  <button class="btn" id="btnLogout" title="退出当前登录">退出登录</button>
 </div>
 
 <div class="container">
@@ -463,6 +465,28 @@
 
   // 大数据平台跳转链接（兼容同源 / 跨域静态预览两种打开方式；带 token）
   $('#linkBigdata').href = API_BASE + '/bigdata' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : '');
+  $('#linkUsers').href = API_BASE + '/users' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : '');
+  $('#btnLogout').addEventListener('click', async () => {
+    await fetch(API_BASE + '/api/auth/logout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: '{}' }).catch(() => {});
+    localStorage.removeItem('relayToken');
+    location.href = API_BASE + '/login';
+  });
+
+  // 会话校验：多用户版 relay 要求管理员登录（或有效 token）
+  (async function checkAuth() {
+    try {
+      const r = await fetch(API_BASE + '/api/auth/me', { credentials: 'same-origin',
+        headers: TOKEN ? { 'X-Relay-Token': TOKEN } : {} });
+      if (r.status === 401) { location.href = API_BASE + '/login'; return; }
+      const me = await r.json();
+      if (!me.ok || me.role !== 'admin') { location.href = API_BASE + '/login'; return; }
+      document.title = 'Docker 管理器 · ' + me.username;
+    } catch (e) {
+      setStatus(false, '未连接（请先启动 docker-relay.py）');
+    }
+  })();
 
   // 容器动作
   $('#containerList').addEventListener('click', async (e) => {

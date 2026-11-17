@@ -68,6 +68,66 @@
 
 五节点模式是标准单 NameNode 架构，不提供 Hadoop HA。它主要用于组件联动、资源规划和综合实训。
 
+## 多用户实验平台（网页版）
+
+`docker-manager/docker-relay.py` 在原有 Docker/大数据网页管理之外，提供账号体系与**每用户独立容器环境**：管理员为普通用户分配账号密码，学生登录后即可自行开设一套大数据组件容器，各用户互不影响。
+
+### 启动与登录
+
+```bat
+docker-manager\start.bat              :: 默认 http://127.0.0.1:8000/login
+docker-manager\start-lan.bat          :: 局域网可访问（0.0.0.0），供学生从自己电脑登录
+```
+
+- 首次启动自动创建管理员 `admin / admin123`（可用环境变量 `ADMIN_PASSWORD` 指定），**请登录后立即修改**。
+- 页面入口：`/login` 登录 · `/` Docker 管理器（管理员）· `/bigdata` 大数据平台（管理员）· `/users` 用户管理（管理员）· `/portal` 我的实验环境（普通用户）。
+- 组件镜像需先由管理员在 `/bigdata` 构建；普通用户只能启停自己的容器，不能构建/删除镜像。
+- `RELAY_TOKEN` 仍可设置（兼容旧用法）：带正确令牌的请求视为管理员；正常教学场景建议直接用账号登录。
+- `BIGDATA_USERS_FILE` 可指定用户库路径（默认 `docker-manager/users.json`），便于多实例或测试隔离。
+
+### 管理员操作（/users）
+
+创建账号（用户名 + 初始密码）、重置密码（旧会话立即失效）、禁用/启用、删除用户（可勾选**同时销毁该用户全部容器与数据**）。列表显示每个用户的 UID、端口段与已创建环境。
+
+### 隔离机制
+
+| 维度 | 规则 |
+|---|---|
+| Compose 项目名 | `bigdata-u<uid>`，各组件同属该项目以便服务名互访 |
+| 容器名 | `u<uid>-原容器名`，全局唯一，避免多用户重名冲突 |
+| 网络 | `bigdata-u<uid>-net`（外部网络，各用户独立，跨用户不可互通） |
+| 宿主机端口 | 每用户 200 个端口：`20000 + (uid-1)*200`，每组件 20 个槽位；容器内部端口不变 |
+| 数据 | 具名卷自动带项目前缀；`./data/...` 落到 `stacks/<用户名>/data/`；`./config/...` 指向项目共享只读配置 |
+
+生成的用户专属 compose 保存在 `stacks/<用户名>/docker-compose.<组件>.yml`，不纳入版本管理。
+
+### 组件依赖（自动处理）
+
+启动计算组件时后端会按拓扑顺序自动先启动前置组件，已运行的依赖自动跳过：
+
+| 目标组件 | 自动前置 |
+|---|---|
+| Spark | Hadoop（`HADOOP_ENVIRONMENT=standard`）或 Hadoop HA（`ha`） |
+| Hive | Hadoop/Hadoop HA + MySQL |
+| HBase | Hadoop/Hadoop HA + ZooKeeper |
+| Kafka | ZooKeeper |
+| Flume | Kafka（进而带起 ZooKeeper） |
+
+Spark 入口脚本会阻塞等待 `namenode:8020`，因此该顺序是必需的；依赖就绪后日志出现 `HDFS NameNode is ready!`，Master 随即启动。
+
+### 进入容器执行命令（Web 终端）
+
+普通用户在 `/portal` 启动组件后，运行中容器的右侧会出现 **>_ 终端** 按钮，点击即可在浏览器里对该容器执行 `docker exec`：
+
+- 后端接口 `POST /api/portal/exec-container`，等价于 `docker exec -i <容器> bash -lc "<命令>"`；镜像无 bash 时自动回退 `sh`。
+- 逐条执行并返回输出与退出码；自动保留 `cd` 后的工作目录；支持 ↑↓ 命令历史、Ctrl+L 清空、快捷命令。
+- 容器归属三重校验：容器名前缀 `u<uid>-`、`com.docker.compose.project` / `.service` 标签必须属于本人 compose 项目、容器必须正在运行。普通用户无法进入他人容器、宿主机主平台容器或手工伪造的同名容器。
+- 单条命令默认最长 60 秒（上限 120 秒），超时中断。`vim` / `top` / `spark-shell` 等需要完整交互 TTY 的程序不在此运行；面板提供「复制 exec 命令」，可复制 `docker exec -it <容器> bash` 到能访问 Docker 的机器终端执行。
+
+### 安全说明
+
+relay 以宿主机用户权限调用 Docker，等同于把 Docker 控制权交给已登录用户，**仅在可信局域网内使用**。账号密码使用 PBKDF2-SHA256 加盐哈希存放于 `docker-manager/users.json`（已加入 `.gitignore`，严禁提交），会话为 12 小时内存态 Cookie，服务重启后需重新登录。
+
 ## 环境要求
 
 - Windows 10/11，WSL2 Ubuntu 20.04 或更新版本

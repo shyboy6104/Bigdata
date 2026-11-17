@@ -137,6 +137,8 @@
     <button class="btn danger" id="btnCleanAll">清理全项目</button>
     <button class="btn danger" id="btnCleanVol">清理悬空卷</button>
     <button class="btn" id="btnDocker" title="前往通用 Docker 管理器">Docker ↗</button>
+    <button class="btn" id="btnUsers" title="用户管理">👥 用户管理</button>
+    <button class="btn" id="btnLogout">退出登录</button>
   </div>
 </div>
 
@@ -429,6 +431,23 @@
   $('#btnStatusAll').addEventListener('click', refreshStatus);
   $('#btnClear').addEventListener('click', () => { $('#log').textContent = ''; });
   $('#btnDocker').addEventListener('click', () => { location.href = API_BASE + '/' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''); });
+  $('#btnUsers').addEventListener('click', () => { location.href = API_BASE + '/users' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''); });
+  $('#btnLogout').addEventListener('click', async () => {
+    await postJSON('/api/auth/logout', {}).catch(() => {});
+    localStorage.removeItem('relayToken');
+    location.href = API_BASE + '/login';
+  });
+
+  // 会话校验：多用户版 relay 要求管理员登录（或有效 token）
+  (async function checkAuth() {
+    try {
+      const r = await fetch(API_BASE + '/api/auth/me', { credentials: 'same-origin',
+        headers: TOKEN ? { 'X-Relay-Token': TOKEN } : {} });
+      if (r.status === 401) { location.href = API_BASE + '/login'; return; }
+      const me = await r.json();
+      if (!me.ok || me.role !== 'admin') { location.href = API_BASE + '/login'; }
+    } catch (e) { /* 静态预览时无法校验，保持原行为 */ }
+  })();
   $('#btnBuildBase').addEventListener('click', () => exec('build-base', 'all', 'single'));
 
   $('#btnCleanAll').addEventListener('click', () =>

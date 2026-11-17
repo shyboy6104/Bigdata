@@ -53,3 +53,8 @@ node_modules/
 
 # 排除项目打包文件
 Bigdata.zip
+
+# 排除多用户平台运行态数据（users.json 含密码哈希，严禁提交）
+docker-manager/users.json
+docker-manager/users.json.tmp
+stacks/

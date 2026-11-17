@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的实验环境 · 大数据实验平台</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d26; --panel2: #1e2632; --border: #2a3340;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #3b82f6; --accent-h: #2563eb;
+    --green: #22c55e; --red: #ef4444; --amber: #f59e0b; --cyan: #06b6d4;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2f3b4a; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 12px 22px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    position: sticky; top: 0; z-index: 20; flex-wrap: wrap;
+  }
+  .logo { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; }
+  .logo .sub { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+  .whoami { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  .top-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); padding: 7px 13px; border-radius: 8px;
+    cursor: pointer; font-size: 13px; transition: .15s; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-h); color: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn.danger:hover { border-color: var(--red); background: rgba(239,68,68,.1); color: var(--red); }
+  .btn.sm { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .main { flex: 1; max-width: 1280px; margin: 0 auto; padding: 18px 22px 14px; width: 100%; }
+  .notice {
+    background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.25); border-radius: var(--radius);
+    padding: 10px 14px; font-size: 12.5px; color: var(--muted); margin-bottom: 14px;
+  }
+  .notice b { color: var(--text); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 13px 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .card:hover { border-color: #3a4655; }
+  .c-head { display: flex; align-items: center; gap: 9px; }
+  .c-title { font-weight: 650; font-size: 14.5px; }
+  .c-zh { color: var(--muted); font-size: 11.5px; margin-left: auto; text-align: right; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid transparent; }
+  .b-running { color: var(--green); background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.3); }
+  .b-stopped { color: var(--muted); background: rgba(139,152,169,.12); border-color: rgba(139,152,169,.3); }
+  .b-absent { color: var(--muted); background: rgba(139,152,169,.06); border-color: rgba(139,152,169,.2); }
+  .c-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .group-label { font-size: 10.5px; color: var(--muted); width: 100%; margin-top: 3px; text-transform: uppercase; letter-spacing: .5px; }
+
+  .c-containers { display: flex; flex-direction: column; gap: 4px; }
+  .ctr-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 9px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 7px;
+  }
+  .ctr-name { font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px; font-weight: 600; }
+  .ctr-state { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ctr-state.up { color: var(--green); }
+
+  .ctr-ports { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 1px; }
+  .port-badge {
+    display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+    font-family: Consolas, Menlo, "Courier New", monospace; font-size: 11px;
+    padding: 1px 7px; border-radius: 5px; border: 1px solid var(--border);
+    background: rgba(139,152,169,.08); color: var(--muted); text-decoration: none;
+  }
+  .port-badge em { font-style: normal; font-size: 10px; opacity: .78; }
+  .port-badge.link { color: var(--cyan); border-color: rgba(6,182,212,.35); cursor: pointer; }
+  .port-badge.link:hover { background: rgba(6,182,212,.14); border-color: var(--cyan); color: var(--cyan); }
+  .port-none { font-size: 10.5px; color: var(--muted); opacity: .7; }
+
+  .console {
+    margin-top: 16px; background: #0a0d11; border: 1px solid var(--border); border-radius: var(--radius);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .console-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .console-head .title { font-weight: 600; font-size: 13px; }
+  .console-head .spinner { display: none; width: 13px; height: 13px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  .console-head .spinner.on { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .console-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  pre.log {
+    padding: 12px 14px; font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px;
+    white-space: pre-wrap; word-break: break-all; overflow: auto; max-height: 38vh; min-height: 120px;
+    color: #c9d4e0; line-height: 1.55;
+  }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .check input { width: auto; }
+
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .modal-head h3 { font-size: 15px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .modal-body { padding: 16px 18px; font-size: 13.5px; }
+  .modal-foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  .modal-body .field { margin-bottom: 12px; }
+  .modal-body .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
+  .modal-body input {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 9px; padding: 9px 11px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  .modal-body input:focus { border-color: var(--accent); }
+  .hint { font-size: 11.5px; color: var(--muted); }
+
+  /* ---- 容器 Web 终端 ---- */
+  .btn.term { color: var(--green); border-color: rgba(34,197,94,.35); font-family: Consolas, Menlo, monospace; }
+  .btn.term:hover { border-color: var(--green); background: rgba(34,197,94,.1); color: var(--green); }
+  .modal.term-modal { max-width: 980px; }
+  .term-head { display: flex; align-items: center; gap: 10px; }
+  .term-head h3 span { font-family: Consolas, Menlo, monospace; color: var(--green); font-size: 13.5px; }
+  .term-head .right { margin-left: auto; display: flex; gap: 7px; align-items: center; }
+  .term-body { padding: 12px 16px 16px; }
+  .term-tip { font-size: 11.5px; color: var(--muted); margin-bottom: 9px; line-height: 1.6; }
+  .term-tip b { color: var(--text); }
+  .term-tip code { font-family: Consolas, Menlo, monospace; color: var(--cyan); }
+  pre.term-out {
+    background: #080b0f; border: 1px solid var(--border); border-radius: 9px;
+    padding: 11px 13px; height: 44vh; min-height: 200px; overflow: auto;
+    font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px;
+    white-space: pre-wrap; word-break: break-all; line-height: 1.55; color: #c9d4e0;
+  }
+  .term-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
+  .term-quick .btn { font-family: Consolas, Menlo, monospace; font-size: 11.5px; padding: 3px 9px; }
+  .term-input-row { display: flex; align-items: center; gap: 8px; }
+  .term-prompt {
+    font-family: Consolas, Menlo, monospace; font-size: 12.5px; color: var(--green);
+    white-space: nowrap; max-width: 50%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .term-input-row input {
+    flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 8px 11px; font-size: 13px;
+    font-family: Consolas, Menlo, monospace; outline: none;
+  }
+  .term-input-row input:focus { border-color: var(--accent); }
+  .term-status { font-size: 11.5px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">🎓 我的实验环境 <span class="sub">独立容器栈</span></div>
+  <div class="whoami"><span id="whoami">…</span></div>
+  <div class="top-actions">
+    <button class="btn" id="btnStatusAll">⟳ 刷新状态</button>
+    <button class="btn" id="btnPwd">修改密码</button>
+    <button class="btn danger" id="btnLogout">退出登录</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="notice" id="notice">
+    <b>说明</b>：每个组件都是<b>你独享</b>的一套容器（独立网络 / 独立端口 / 独立数据），与其他同学互不影响。
+    点击卡片上的「启动」即可创建；端口徽章中带 ↗ 的可在浏览器直接打开。<br>
+    <b>组件依赖</b>：启动 Spark / Hive / HBase 时，系统会<b>自动先启动 Hadoop</b> 等前置组件（Hive 还需 MySQL、Kafka 需 ZooKeeper、Flume 需 Kafka），
+    已运行的依赖会自动跳过，无需手动按顺序点。当前使用 <b>standard</b> 还是 <b>HA</b> 版 Hadoop 由服务器 config/environment.conf 决定。<br>
+    <b>进入容器</b>：运行中的容器右侧有 <b>&gt;_ 终端</b> 按钮，点击可在浏览器里执行 <b>docker exec</b> 命令（只能进入你自己的容器）。<br>
+    <span class="hint">控制台出现 <i>Found orphan containers</i> 警告属正常现象：同一用户的多个组件共用一个 Compose 项目名，以便服务名互相解析；它不会删除别的组件。</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="console">
+    <div class="console-head">
+      <span class="title">命令输出</span>
+      <span class="spinner" id="busySpin"></span>
+      <div class="right">
+        <label class="check"><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+        <button class="btn sm" id="btnClear">清空</button>
+      </div>
+    </div>
+    <pre class="log" id="log"></pre>
+  </div>
+</div>
+
+<div class="modal-mask" id="confirmModal">
+  <div class="modal">
+    <div class="modal-head"><h3>确认操作</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body"><div id="confirmText"></div></div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn danger" id="confirmYes">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="pwdModal">
+  <div class="modal">
+    <div class="modal-head"><h3>修改密码</h3><button class="modal-close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>原密码</label><input type="password" id="pwdOld"></div>
+      <div class="field"><label>新密码（至少 6 位）</label><input type="password" id="pwdNew"></div>
+      <div class="field"><label>确认新密码</label><input type="password" id="pwdNew2"></div>
+      <div class="hint" id="pwdMsg"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn primary" id="pwdSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="termModal">
+  <div class="modal term-modal">
+    <div class="modal-head term-head">
+      <h3>容器终端 · <span id="termCname">—</span></h3>
+      <div class="right">
+        <button class="btn sm" id="termCopy" title="复制完整交互终端命令，在可访问 Docker 的机器上运行">⧉ 复制 exec 命令</button>
+        <button class="btn sm" id="termClear">清空</button>
+        <button class="modal-close" data-close title="关闭">×</button>
+      </div>
+    </div>
+    <div class="term-body">
+      <div class="term-tip">
+        在<b>你自己的容器</b>内执行命令（后端等价于 <code>docker exec -i &lt;容器&gt; bash -lc "&lt;命令&gt;"</code>）。
+        逐条执行并自动保留 <code>cd</code> 后的目录；↑↓ 翻历史、Ctrl+L 清空、Esc 关闭。<br>
+        <b>注意</b>：这里不是全交互 TTY，<code>vim</code> / <code>top</code> / <code>spark-shell</code> 等需要终端的程序，请点「复制 exec 命令」在可访问 Docker 的机器终端里运行。
+      </div>
+      <pre class="term-out" id="termOut"></pre>
+      <div class="term-quick" id="termQuick">
+        <button class="btn sm" data-cmd="pwd">pwd</button>
+        <button class="btn sm" data-cmd="ls -l">ls -l</button>
+        <button class="btn sm" data-cmd="whoami; hostname; id">whoami / hostname</button>
+        <button class="btn sm" data-cmd="env | sort | grep -iE 'JAVA|HADOOP|SPARK|HOME|PATH'">环境变量</button>
+        <button class="btn sm" data-cmd="jps">jps</button>
+        <button class="btn sm" data-cmd="hdfs dfs -ls /">hdfs dfs -ls /</button>
+        <button class="btn sm" data-cmd="df -h; free -h">磁盘 / 内存</button>
+        <button class="btn sm" data-cmd="ps -ef | head -20">进程</button>
+        <button class="btn sm" data-cmd="cat /etc/os-release | head -5">系统版本</button>
+      </div>
+      <div class="term-input-row">
+        <span class="term-prompt" id="termPrompt">$ </span>
+        <input id="termInput" autocomplete="off" spellcheck="false" placeholder="输入命令后回车，例如：ls -l /">
+        <button class="btn primary sm" id="termRun">执行 ↵</button>
+      </div>
+      <div class="term-status" id="termStatus"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const API_BASE = (location.port === '8000') ? '' : 'http://127.0.0.1:8000';
+  const $ = (s) => document.querySelector(s);
+
+  const COMPS = [
+    { key: 'hadoop', label: 'Hadoop', zh: '标准集群' },
+    { key: 'hadoop-ha', label: 'Hadoop HA', zh: '高可用集群' },
+    { key: 'zookeeper', label: 'ZooKeeper', zh: '协调服务' },
+    { key: 'hbase', label: 'HBase', zh: '列式数据库' },
+    { key: 'hive', label: 'Hive', zh: '数据仓库' },
+    { key: 'kafka', label: 'Kafka', zh: '消息队列' },
+    { key: 'spark', label: 'Spark', zh: '计算引擎' },
+    { key: 'flink', label: 'Flink', zh: '流计算' },
+    { key: 'flume', label: 'Flume', zh: '日志采集' },
+    { key: 'mysql', label: 'MySQL', zh: '关系数据库' },
+  ];
+
+  const stacksMap = {};   // key -> {created, running, containers}
+  let busy = false;
+
+  async function getJSON(path) {
+    const r = await fetch(API_BASE + path, { credentials: 'same-origin' });
+    return r.json();
+  }
+  async function postJSON(path, body) {
+    const r = await fetch(API_BASE + path, { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.json();
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  function append(text) {
+    const log = $('#log');
+    log.textContent += text;
+    if ($('#autoScroll').checked) log.scrollTop = log.scrollHeight;
+  }
+
+  function setBusy(on) { busy = on; $('#busySpin').className = 'spinner' + (on ? ' on' : ''); }
+
+  function badge(st) {
+    if (st === 'running') return '<span class="badge b-running">运行中</span>';
+    if (st === 'stopped') return '<span class="badge b-stopped">已创建</span>';
+    if (st === 'absent') return '<span class="badge b-absent">未创建</span>';
+    return '<span class="badge b-stopped">未知</span>';
+  }
+
+  function buildPorts(ct) {
+    const ps = ct.ports || [];
+    if (!ps.length) return '<div class="ctr-ports"><span class="port-none">未映射端口</span></div>';
+    const up = ct.state === 'running';
+    const host = location.hostname || '127.0.0.1';
+    let h = '<div class="ctr-ports">';
+    ps.forEach((p) => {
+      const txt = (p.host === p.target) ? String(p.host) : (p.host + '→' + p.target);
+      const tip = (p.label ? p.label + ' · ' : '') + '容器端口 ' + p.target;
+      const label = p.label ? ' <em>' + esc(p.label) + '</em>' : '';
+      if (p.web && up) {
+        h += '<a class="port-badge link" href="http://' + esc(host) + ':' + p.host +
+             '" target="_blank" rel="noopener" title="' + esc(tip) + '">↗ ' + esc(txt) + label + '</a>';
+      } else {
+        h += '<span class="port-badge" title="' + esc(tip) + '">' + esc(txt) + label + '</span>';
+      }
+    });
+    return h + '</div>';
+  }
+
+  function buildContainers(comp) {
+    const st = stacksMap[comp.key] || {};
+    const list = st.containers || [];
+    if (!list.length) return '';
+    let html = '<div class="c-containers"><span class="group-label">容器</span>';
+    list.forEach((ct) => {
+      const up = ct.state === 'running';
+      html += '<div class="ctr-row">' +
+        '<span class="ctr-name">' + esc(ct.name) + '</span>' +
+        (up
+          ? '<button class="btn sm term" data-term="' + esc(ct.name) + '" title="在浏览器内进入该容器执行命令（docker exec）">&gt;_ 终端</button>'
+          : '<button class="btn sm" disabled title="容器未运行，无法进入">&gt;_ 终端</button>') +
+        '<span class="ctr-state ' + (up ? 'up' : '') + '">' + (up ? '● ' : '○ ') + esc(ct.status || ct.state) + '</span>' +
+        buildPorts(ct) +
+        '</div>';
+    });
+    return html + '</div>';
+  }
+
+  function compState(comp) {
+    const st = stacksMap[comp.key];
+    if (!st) return 'absent';
+    if (st.running) return 'running';
+    if (st.created) return 'stopped';
+    return 'absent';
+  }
+
+  function renderGrid() {
+    const grid = $('#grid');
+    let html = '';
+    COMPS.forEach((c) => {
+      const created = stacksMap[c.key] && stacksMap[c.key].created;
+      html += '<div class="card">' +
+        '<div class="c-head"><span class="c-title">' + esc(c.label) + '</span>' + badge(compState(c)) +
+          '<span class="c-zh">' + esc(c.zh) + '</span></div>' +
+        '<div class="c-actions">' +
+          (created
+            ? '<button class="btn sm primary" data-op="start" data-comp="' + c.key + '">启动</button>' +
+              '<button class="btn sm" data-op="stop" data-comp="' + c.key + '">停止</button>' +
+              '<button class="btn sm" data-op="restart" data-comp="' + c.key + '">重启</button>' +
+              '<button class="btn sm danger" data-op="destroy" data-comp="' + c.key + '">销毁</button>' +
+              '<button class="btn sm danger" data-op="clean" data-comp="' + c.key + '">清理(含数据)</button>' +
+              '<span class="group-label">监控</span>' +
+              '<button class="btn sm" data-op="logs" data-comp="' + c.key + '">日志</button>'
+            : '<button class="btn sm primary" data-op="start" data-comp="' + c.key + '">启动（创建我的环境）</button>') +
+        '</div>' +
+        buildContainers(c) +
+      '</div>';
+    });
+    grid.innerHTML = html;
+  }
+
+  async function refreshStatus() {
+    try {
+      const r = await getJSON('/api/portal/stacks');
+      if (r.ok) {
+        COMPS.forEach((c) => { stacksMap[c.key] = r.stacks[c.key] || { created: false, containers: [] }; });
+        renderGrid();
+      }
+    } catch (e) { /* 忽略瞬时错误 */ }
+  }
+
+  async function exec(op, comp) {
+    if (busy) { append('[提示] 已有任务在执行中，请稍候…\n'); return; }
+    append('\n================================================\n');
+    append('>>> ' + opName(op) + ' | 组件=' + comp + '\n');
+    setBusy(true);
+    try {
+      const r = await postJSON('/api/portal/exec', { op, component: comp });
+      if (!r.ok) { append('[ERROR] ' + (r.error || '启动失败') + '\n'); return; }
+      let offset = 0;
+      while (true) {
+        const t = await getJSON('/api/portal/task/' + r.task_id).catch(() => null);
+        if (!t || !t.ok) {
+          if (t && t.error) append('[ERROR] ' + t.error + '\n');
+          else append('[ERROR] 无法获取任务状态\n');
+          break;
+        }
+        const full = t.output || '';
+        if (full.length > offset) { append(full.slice(offset)); offset = full.length; }
+        if (!t.running) {
+          append('\n[完成] 退出码 ' + t.code + (t.code === 0 ? ' ✓' : ' ✗') + '\n');
+          break;
+        }
+        await sleep(700);
+      }
+    } catch (e) {
+      append('[ERROR] ' + (e && e.message ? e.message : e) + '\n');
+    } finally {
+      setBusy(false);
+      refreshStatus();
+    }
+  }
+
+  function opName(op) {
+    const m = { start: '启动', stop: '停止', restart: '重启', destroy: '销毁', clean: '清理(-v)', logs: '查看日志' };
+    return m[op] || op;
+  }
+
+  // ---- 容器 Web 终端（docker exec）----
+  const term = { container: '', cwd: '/', history: [], hidx: 0, busy: false };
+
+  function termPrint(text) {
+    const out = $('#termOut');
+    out.textContent += text;
+    out.scrollTop = out.scrollHeight;
+  }
+  function termPrompt() {
+    $('#termPrompt').textContent = term.container + ':' + term.cwd + ' # ';
+  }
+  function openTerm(name) {
+    term.container = name; term.cwd = '/'; term.history = []; term.hidx = 0; term.busy = false;
+    $('#termCname').textContent = name;
+    $('#termOut').textContent = '';
+    $('#termInput').value = '';
+    $('#termStatus').textContent = '';
+    termPrompt();
+    $('#termModal').classList.add('show');
+    termPrint('已连接 ' + name + '（你的专属容器）\n输入 help 查看说明，或直接点下方快捷命令。\n\n');
+    $('#termInput').focus();
+    runTermCmd('pwd');
+  }
+
+  async function runTermCmd(cmd) {
+    cmd = (cmd == null) ? $('#termInput').value : cmd;
+    if (!cmd || !cmd.trim() || term.busy) return;
+    cmd = cmd.trim();
+    $('#termInput').value = '';
+    if (cmd === 'clear' || cmd === 'cls') { $('#termOut').textContent = ''; return; }
+    if (cmd === 'help') {
+      termPrint('常用命令：ls / cd / cat / env / jps / ps -ef / hdfs dfs -ls / / spark-submit …\n' +
+                '内置命令：clear 清空输出 · help 本说明\n' +
+                '每条命令独立执行，但会自动记住 cd 后的目录；↑↓ 可翻历史。\n' +
+                'vim / top / spark-shell 等交互程序请用「复制 exec 命令」在本机终端运行。\n\n');
+      return;
+    }
+    if (term.history[term.history.length - 1] !== cmd) term.history.push(cmd);
+    term.hidx = term.history.length;
+    term.busy = true;
+    $('#termRun').disabled = true;
+    $('#termStatus').textContent = '执行中…（最长 60 秒）';
+    termPrint('# ' + cmd + '\n');
+    try {
+      const r = await postJSON('/api/portal/exec-container', {
+        container: term.container, command: cmd, cwd: term.cwd, timeout: 60
+      });
+      if (!r.ok) {
+        termPrint('[ERROR] ' + (r.error || '执行失败') + '\n');
+        $('#termStatus').textContent = r.error || '执行失败';
+      } else {
+        if (r.output) termPrint(r.output + '\n');
+        if (r.cwd && r.cwd !== term.cwd) { term.cwd = r.cwd; termPrompt(); }
+        if (r.code !== 0) termPrint('[退出码 ' + r.code + ']\n');
+        $('#termStatus').textContent = '完成 · 目录 ' + term.cwd + ' · 退出码 ' + r.code;
+      }
+    } catch (e) {
+      termPrint('[ERROR] ' + (e && e.message ? e.message : e) + '\n');
+      $('#termStatus').textContent = '请求失败，请检查登录状态与网络';
+    } finally {
+      term.busy = false;
+      $('#termRun').disabled = false;
+      termPrint('\n');
+      $('#termInput').focus();
+    }
+  }
+
+  $('#termRun').addEventListener('click', () => runTermCmd());
+  $('#termQuick').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-cmd]');
+    if (b) runTermCmd(b.dataset.cmd);
+  });
+  $('#termInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); runTermCmd(); }
+    else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (term.hidx > 0) { term.hidx--; $('#termInput').value = term.history[term.hidx] || ''; }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (term.hidx < term.history.length - 1) { term.hidx++; $('#termInput').value = term.history[term.hidx] || ''; }
+      else { term.hidx = term.history.length; $('#termInput').value = ''; }
+    } else if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault(); $('#termOut').textContent = '';
+    } else if (e.key === 'Escape') {
+      $('#termModal').classList.remove('show');
+    }
+  });
+  $('#termClear').addEventListener('click', () => { $('#termOut').textContent = ''; $('#termInput').focus(); });
+  $('#termCopy').addEventListener('click', async () => {
+    const cmd = 'docker exec -it ' + term.container + ' bash';
+    let done = false;
+    try { await navigator.clipboard.writeText(cmd); done = true; } catch (e) { /* 非 HTTPS 环境降级 */ }
+    if (!done) {
+      const ta = document.createElement('textarea');
+      ta.value = cmd; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { done = document.execCommand('copy'); } catch (e) { done = false; }
+      document.body.removeChild(ta);
+    }
+    $('#termStatus').textContent = (done ? '已复制：' : '请手动复制：') + cmd;
+  });
+
+  // ---- 确认框 ----
+  let confirmCb = null;
+  function confirmDo(html, cb) {
+    $('#confirmText').innerHTML = html;
+    confirmCb = cb;
+    $('#confirmModal').classList.add('show');
+  }
+  $('#confirmYes').addEventListener('click', async () => {
+    $('#confirmModal').classList.remove('show');
+    if (confirmCb) await confirmCb();
+  });
+  document.querySelectorAll('.modal-close, [data-close]').forEach((b) =>
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.modal-mask').forEach((m) => m.classList.remove('show'));
+    }));
+
+  // ---- 修改密码 ----
+  $('#btnPwd').addEventListener('click', () => {
+    $('#pwdOld').value = ''; $('#pwdNew').value = ''; $('#pwdNew2').value = '';
+    $('#pwdMsg').textContent = '';
+    $('#pwdModal').classList.add('show');
+  });
+  $('#pwdSave').addEventListener('click', async () => {
+    const oldv = $('#pwdOld').value, nv = $('#pwdNew').value, n2 = $('#pwdNew2').value;
+    if (nv !== n2) { $('#pwdMsg').textContent = '两次输入的新密码不一致'; return; }
+    if (nv.length < 6) { $('#pwdMsg').textContent = '新密码至少 6 位'; return; }
+    const r = await postJSON('/api/auth/password', { old: oldv, new: nv });
+    if (r.ok) { $('#pwdModal').classList.remove('show'); alert('密码已修改，请重新登录'); location.href = '/login'; }
+    else { $('#pwdMsg').textContent = r.error || '修改失败'; }
+  });
+
+  $('#btnLogout').addEventListener('click', async () => {
+    await postJSON('/api/auth/logout', {}).catch(() => {});
+    location.href = '/login';
+  });
+
+  $('#btnStatusAll').addEventListener('click', refreshStatus);
+  $('#btnClear').addEventListener('click', () => { $('#log').textContent = ''; });
+
+  // ---- 事件 ----
+  $('#grid').addEventListener('click', (e) => {
+    const tb = e.target.closest('button[data-term]');
+    if (tb) { if (!tb.disabled) openTerm(tb.dataset.term); return; }
+    const b = e.target.closest('button[data-op]');
+    if (!b) return;
+    const op = b.dataset.op, comp = b.dataset.comp;
+    const label = opName(op);
+    if (op === 'destroy') {
+      confirmDo('确定对 <b>' + esc(comp) + '</b> 执行「销毁」吗？<br><span class="hint">docker compose down（保留数据卷）</span>',
+        () => exec(op, comp));
+      return;
+    }
+    if (op === 'clean') {
+      confirmDo('确定对 <b>' + esc(comp) + '</b> 执行「清理」吗？<br><span class="hint">docker compose down -v，<b style="color:var(--red)">数据将被删除</b>，环境恢复到初始状态</span>',
+        () => exec(op, comp));
+      return;
+    }
+    exec(op, comp);
+  });
+
+  // ---- 初始化：校验会话 ----
+  (async function init() {
+    try {
+      const r = await fetch(API_BASE + '/api/auth/me', { credentials: 'same-origin' });
+      const me = await r.json();
+      if (!r.ok || !me.ok) { location.href = '/login'; return; }
+      $('#whoami').textContent = '👤 ' + me.username + (me.role === 'admin' ? '（管理员）' : '');
+      renderGrid();
+      append('就绪。这是你的独立实验环境，与其他用户互不影响。\n');
+      await refreshStatus();
+      setInterval(refreshStatus, 20000);
+    } catch (e) {
+      location.href = '/login';
+    }
+  })();
+})();
+</script>
+</body>
+</html>
