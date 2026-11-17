@@ -487,6 +487,61 @@ def get_services(component, arch):
     return [s.strip() for s in r.stdout.splitlines() if s.strip()]
 
 
+# 容器内端口 -> (用途标签, 是否为可用浏览器打开的 Web 服务)
+# 按「容器端口」标注，因为宿主机端口可能因系统保留区间被改写。
+PORT_INFO = {
+    22:     ("SSH", False),
+    2181:   ("ZooKeeper", False),
+    3306:   ("MySQL", False),
+    4040:   ("Application UI", True),
+    6123:   ("Flink RPC", False),
+    7077:   ("Spark Master RPC", False),
+    8020:   ("HDFS RPC", False),
+    8080:   ("Web UI", True),
+    8081:   ("Web UI", True),
+    8082:   ("Web UI", True),
+    8088:   ("YARN UI", True),
+    9000:   ("HDFS", False),
+    9083:   ("Metastore", False),
+    9092:   ("Kafka", False),
+    9864:   ("DataNode UI", True),
+    9870:   ("NameNode UI", True),
+    10000:  ("HiveServer2", False),
+    10002:  ("Hive UI", True),
+    16000:  ("HBase Master RPC", False),
+    16010:  ("HBase UI", True),
+    16020:  ("RegionServer", False),
+    16030:  ("HBase UI", True),
+    18080:  ("History Server", True),
+    19888:  ("JobHistory UI", True),
+}
+
+
+def parse_publishers(entry):
+    """从 compose ps 的 Publishers 提取宿主机/容器端口映射，去重 IPv4/IPv6 双栈记录。"""
+    out, seen = [], set()
+    for p in entry.get("Publishers") or []:
+        try:
+            host = int(p.get("PublishedPort") or 0)
+            target = int(p.get("TargetPort") or 0)
+        except (TypeError, ValueError):
+            continue
+        if host <= 0 or target <= 0:
+            continue  # 仅 expose、未发布到宿主机
+        key = (host, target)
+        if key in seen:
+            continue  # 0.0.0.0 与 :: 两条记录只保留一条
+        seen.add(key)
+        label, is_web = PORT_INFO.get(target, ("", False))
+        out.append({
+            "host": host, "target": target,
+            "protocol": p.get("Protocol") or "tcp",
+            "label": label, "web": is_web,
+        })
+    out.sort(key=lambda v: v["host"])
+    return out
+
+
 def api_bigdata_status(component, arch):
     f = get_compose_file(component, arch)
     if not os.path.exists(os.path.join(PROJECT_DIR, f)):
@@ -511,6 +566,7 @@ def api_bigdata_status(component, arch):
                 "service": svc,
                 "state": x.get("State", ""),
                 "status": x.get("Status", ""),
+                "ports": parse_publishers(x),
             })
         running = any(c.get("state") == "running" for c in containers)
         if not containers and not arr:

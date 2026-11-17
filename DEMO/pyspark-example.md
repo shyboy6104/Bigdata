@@ -13,7 +13,7 @@ python DEMO\pyspark-example-local.py
 ```
 
 - Driver：Windows 本地
-- Master：`spark://127.0.0.1:7077`（Docker 映射端口）
+- Master：`spark://127.0.0.1:17077`（Docker 映射端口，宿主机 17077 → 容器 7077）
 - Executor：Docker 中的 Spark Worker
 
 ## 2. 在 Docker 中运行

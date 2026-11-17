@@ -285,9 +285,9 @@ fi
 
 # 测试 Spark History Server Web UI
 echo "4. 测试 Spark History Server Web UI 可访问性..."
-history_status=$(curl -s -L -o /dev/null -w "%{http_code}" http://localhost:18080)
+history_status=$(curl -s -L -o /dev/null -w "%{http_code}" http://localhost:18082)
 if [ "$history_status" = "200" ]; then
-    echo "✓ Spark History Server Web UI 正常 (http://localhost:18080)"
+    echo "✓ Spark History Server Web UI 正常 (http://localhost:18082)"
 else
     echo "⚠ Spark History Server Web UI 返回状态码: $history_status"
 fi

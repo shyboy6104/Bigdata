@@ -213,7 +213,7 @@ bash bigdata-cli.sh --architecture multi test all
 | Hive Metastore | `localhost:19083` |
 | HiveServer2 JDBC / Web UI | `localhost:11000` / http://localhost:11002 |
 | Kafka 1/2/3 | `localhost:19092/19093/19094` |
-| Spark Master / History | http://localhost:8080 / http://localhost:18080 |
+| Spark Master / History | http://localhost:8080 / http://localhost:18082 |
 | Spark Worker 1/2 | http://localhost:8081 / http://localhost:8082 |
 | Flink Dashboard | http://localhost:18081 |
 | MySQL | `localhost:3307` |

@@ -313,7 +313,7 @@ docker logs spark-worker2 --tail 100
 - Spark Master：http://localhost:8080
 - Spark Worker 1：http://localhost:8081
 - Spark Worker 2：http://localhost:8082
-- Spark History Server：http://localhost:18080
+- Spark History Server：http://localhost:18082
 
 Master 页面通过条件：
 
@@ -755,7 +755,7 @@ Using Scala version 2.12.10
 
 ```powershell
 spark-submit.cmd `
-  --master spark://127.0.0.1:7077 `
+  --master spark://127.0.0.1:17077 `
   --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/DEMO/log4j-local.properties" `
   DEMO\pyspark-example-local.py
 ```
@@ -764,7 +764,7 @@ spark-submit.cmd `
 
 | 参数 | 作用 |
 |---|---|
-| `--master spark://127.0.0.1:7077` | 通过 Docker 暴露到 Windows 的 7077 端口连接 Spark Master |
+| `--master spark://127.0.0.1:17077` | 通过 Docker 暴露到 Windows 的 17077 端口连接 Spark Master（映射到容器内 7077） |
 | `--driver-java-options` | 在 Driver JVM 启动前加载教学用 Log4j 配置 |
 | 最后的 `.py` 路径 | 指定要提交的 Python 主程序 |
 
@@ -774,7 +774,7 @@ spark-submit.cmd `
 
 ```powershell
 spark-submit.cmd `
-  --master spark://127.0.0.1:7077 `
+  --master spark://127.0.0.1:17077 `
   --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/DEMO/log4j-local.properties" `
   DEMO\pyspark-hdfs-example-local.py
 ```

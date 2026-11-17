@@ -148,7 +148,7 @@ PYSPARK_SMOKE_OK square_sum=55 adult_count=2
 |---|---|---|
 | `curl http://localhost:8080` | HTTP 200 | Master Web UI 状态码精确为 200 |
 | `curl http://localhost:8081/8082` | 至少一个 HTTP 200 | 两个 Worker 页面中至少一个正常 |
-| `curl http://localhost:18080` | HTTP 200 或异常状态码 | 仅记录 History Server 状态，不决定最终退出码 |
+| `curl http://localhost:18082` | HTTP 200 或异常状态码 | 仅记录 History Server 状态，不决定最终退出码 |
 | 三个容器执行`python3 --version` | 均输出`Python 3` | Master和两个Worker的Python解释器都存在 |
 | 三个容器读取`/opt/spark/conf/workers`并检查`slaves` | 两个正确hostname且无旧文件 | 配置只包含`spark-worker1`、`spark-worker2`，旧`slaves`不存在 |
 | 三个容器执行`jar tf mysql-connector-java-5.1.49.jar` | 输出`com/mysql/jdbc/Driver.class` | Master和两个Worker均已由镜像内置正确版本驱动 |

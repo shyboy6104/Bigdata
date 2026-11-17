@@ -68,7 +68,7 @@
 
   .c-containers { display: flex; flex-direction: column; gap: 4px; }
   .ctr-row {
-    display: flex; align-items: center; gap: 8px; padding: 4px 9px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 9px;
     background: var(--panel2); border: 1px solid var(--border); border-radius: 7px;
   }
   .ctr-name { font-family: Consolas, Menlo, "Courier New", monospace; font-size: 12.5px; font-weight: 600; }
@@ -77,6 +77,18 @@
   .ctr-actions { margin-left: auto; display: flex; gap: 5px; }
   .btn.term { color: var(--cyan); border-color: rgba(6,182,212,.35); }
   .btn.term:hover { background: rgba(6,182,212,.12); border-color: var(--cyan); color: var(--cyan); }
+
+  .ctr-ports { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 1px; }
+  .port-badge {
+    display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+    font-family: Consolas, Menlo, "Courier New", monospace; font-size: 11px;
+    padding: 1px 7px; border-radius: 5px; border: 1px solid var(--border);
+    background: rgba(139,152,169,.08); color: var(--muted); text-decoration: none;
+  }
+  .port-badge em { font-style: normal; font-size: 10px; opacity: .78; }
+  .port-badge.link { color: var(--cyan); border-color: rgba(6,182,212,.35); cursor: pointer; }
+  .port-badge.link:hover { background: rgba(6,182,212,.14); border-color: var(--cyan); color: var(--cyan); }
+  .port-none { font-size: 10.5px; color: var(--muted); opacity: .7; }
 
   .console {
     margin-top: 16px; background: #0a0d11; border: 1px solid var(--border); border-radius: var(--radius);
@@ -232,6 +244,27 @@
     return html;
   }
 
+  // 端口徽章：显示「宿主机端口 → 容器端口」+ 用途；Web 类端口在容器运行时可直接点击打开
+  function buildPorts(ct) {
+    const ps = ct.ports || [];
+    if (!ps.length) return '<div class="ctr-ports"><span class="port-none">未映射端口（仅 expose）</span></div>';
+    const up = ct.state === 'running';
+    const host = location.hostname || '127.0.0.1';
+    let h = '<div class="ctr-ports">';
+    ps.forEach((p) => {
+      const txt = (p.host === p.target) ? String(p.host) : (p.host + '→' + p.target);
+      const tip = (p.label ? p.label + ' · ' : '') + '容器端口 ' + p.target + '/' + (p.protocol || 'tcp');
+      const label = p.label ? ' <em>' + esc(p.label) + '</em>' : '';
+      if (p.web && up) {
+        h += '<a class="port-badge link" href="http://' + esc(host) + ':' + p.host +
+             '" target="_blank" rel="noopener" title="浏览器打开：' + esc(tip) + '">↗ ' + esc(txt) + label + '</a>';
+      } else {
+        h += '<span class="port-badge" title="' + esc(tip) + (up ? '' : '（容器未运行）') + '">' + esc(txt) + label + '</span>';
+      }
+    });
+    return h + '</div>';
+  }
+
   function buildContainers(comp) {
     const list = containersMap[comp.key] || [];
     if (!list.length) return '';
@@ -244,6 +277,7 @@
         '<span class="ctr-actions">' +
         (up ? '<button class="btn sm term" data-term="' + esc(ct.name) + '" title="在新命令行窗口执行 docker exec -it ' + esc(ct.name) + ' bash">终端</button>' : '') +
         '</span>' +
+        buildPorts(ct) +
         '</div>';
     });
     html += '</div>';

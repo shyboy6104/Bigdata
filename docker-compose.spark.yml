@@ -19,9 +19,12 @@ services:
       - ./config/environment.conf:/config/environment.conf:ro
       - ./data/spark/logs:/opt/spark/logs
     ports:
-      - "7077:7077"  # Spark Master端口
+      # Windows(WSL2/Hyper-V)会动态保留一批TCP端口，7077与18080可能落入排除区间导致
+      # "bind: forbidden by its access permissions"（Docker Desktop 报 HTTP 500）。
+      # 故宿主机侧改用 17077 / 18082；容器内部端口仍是 7077 / 18080，集群配置无需改动。
+      - "17077:7077"  # Spark Master端口（宿主机 17077 -> 容器 7077）
       - "8080:8080"  # Spark Master Web UI
-      - "18080:18080"  # Spark History Server
+      - "18082:18080"  # Spark History Server（宿主机 18082 -> 容器 18080；18081 已被 Flink 占用）
       - "4040:4040"  # Spark Application UI（运行中应用的 Driver Web UI）
     expose:
       - "22"  # 仅供bigdata-net内部通过SSH批量管理Worker，不映射到宿主机
