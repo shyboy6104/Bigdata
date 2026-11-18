@@ -180,10 +180,15 @@
   <div class="notice" id="notice">
     <b>说明</b>：每个组件都是<b>你独享</b>的一套容器（独立网络 / 独立端口 / 独立数据），与其他同学互不影响。
     点击卡片上的「启动」即可创建；端口徽章中带 ↗ 的可在浏览器直接打开。<br>
+    <b>关于卡片上的「环境已创建 / 环境未创建」</b>：这个状态只表示<b>你自己的这套专属容器有没有生成过</b>，
+    <u>不是</u>镜像有没有构建好。所有镜像（bigdata-hadoop / bigdata-zookeeper / bigdata-kafka …）由管理员在服务器上统一预置、全体用户共享，
+    无需、也不会为每个用户重复构建。所以即使 Kafka 镜像早已就绪，只要你还没点过 Kafka 卡片上的「启动（创建我的环境）」，这里就显示「环境未创建」。<br>
     <b>组件依赖</b>：启动 Spark / Hive / HBase 时，系统会<b>自动先启动 Hadoop</b> 等前置组件（Hive 还需 MySQL、Kafka 需 ZooKeeper、Flume 需 Kafka），
     已运行的依赖会自动跳过，无需手动按顺序点。当前使用 <b>standard</b> 还是 <b>HA</b> 版 Hadoop 由服务器 config/environment.conf 决定。<br>
     <b>进入容器</b>：运行中的容器右侧有两种入口 —— <b>&gt;_ 终端</b> 在页面内逐条执行命令；
     <b>▣ 全交互</b> 打开真实 TTY（新标签页），可用 <b>vim / top / spark-shell</b>、Tab 补全与 Ctrl+C。两者都只能进入你自己的容器。<br>
+    <b>代码开发</b>：<b>代码开发 / Client 环境</b> 是预装全套客户端与 Python/Java 库的开发容器，不启动任何服务、也不占用端口。
+    点「▣ 全交互」进去，代码写在 <b>/workspace</b>（重启不丢失）；要操作哪个组件，就先启动哪个组件。<br>
     <span class="hint">控制台出现 <i>Found orphan containers</i> 警告属正常现象：同一用户的多个组件共用一个 Compose 项目名，以便服务名互相解析；它不会删除别的组件。</span>
   </div>
 
@@ -285,6 +290,7 @@
     { key: 'flink', label: 'Flink', zh: '流计算' },
     { key: 'flume', label: 'Flume', zh: '日志采集' },
     { key: 'mysql', label: 'MySQL', zh: '关系数据库' },
+    { key: 'client', label: '代码开发', zh: 'Client 环境' },
   ];
 
   const stacksMap = {};   // key -> {created, running, containers}
@@ -313,9 +319,10 @@
   function setBusy(on) { busy = on; $('#busySpin').className = 'spinner' + (on ? ' on' : ''); }
 
   function badge(st) {
-    if (st === 'running') return '<span class="badge b-running">运行中</span>';
-    if (st === 'stopped') return '<span class="badge b-stopped">已创建</span>';
-    if (st === 'absent') return '<span class="badge b-absent">未创建</span>';
+    const tip = '此状态表示「你自己的容器环境」是否已创建，与 Docker 镜像是否已构建无关';
+    if (st === 'running') return '<span class="badge b-running" title="' + tip + '">运行中</span>';
+    if (st === 'stopped') return '<span class="badge b-stopped" title="你的专属环境配置已生成，但容器当前未运行（或已被清理）">环境已创建</span>';
+    if (st === 'absent') return '<span class="badge b-absent" title="尚未为你创建这套专属容器，点下面的「启动」即可创建">环境未创建</span>';
     return '<span class="badge b-stopped">未知</span>';
   }
 

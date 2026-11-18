@@ -3,6 +3,8 @@ setlocal EnableExtensions
 
 REM BigData CLI Windows 包装脚本（中文版）。本文件以 GBK 编码保存，
 REM 匹配中文 Windows 的 OEM 代码页(936)，无需 chcp 即可正确显示中文。
+REM 网页平台（账号登录 + 每人独立容器）：docker-manager\start.bat / start-lan.bat
+REM 英文版：bigdata-cli.bat -> bigdata-cli.sh
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_PATH=%SCRIPT_DIR%bigdata-cli-zh.sh"
 set "WSL_SCRIPT_PATH="

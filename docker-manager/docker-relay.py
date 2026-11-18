@@ -382,7 +382,7 @@ def api_image_remove(body):
 # 大数据平台管理（复刻 bigdata-cli.sh 的功能）
 # ============================================================
 COMPONENTS = ["hadoop", "hadoop-ha", "zookeeper", "hbase", "hive",
-              "kafka", "spark", "flink", "flume", "mysql"]
+              "kafka", "spark", "flink", "flume", "mysql", "client"]
 SINGLE_COMPOSE = {c: "docker-compose.%s.yml" % c for c in COMPONENTS}
 MULTI_COMPOSE = "docker-compose.5-node-cluster.yml"
 SHARED_NETWORK = "bigdata-net"
@@ -814,6 +814,32 @@ def stack_compose(rec, component):
     return os.path.join(stack_dir(rec), "docker-compose.%s.yml" % component)
 
 
+def sync_client_examples(user_stack_dir):
+    """把 examples/client/ 下后补的示例增量投放进用户 workspace（不覆盖学生代码）。
+
+    镜像内 /opt/client-examples 是构建时的快照，早期 client-entrypoint.sh 还以
+    /workspace/README.md 是否存在作为投放门槛；两者叠加会让「镜像构建之后新增的示例」
+    （例如 kafka_producer.py / kafka_consumer.py）永远进不了已创建过的用户栈。
+    这里按文件粒度补齐：已存在的文件一律跳过，学生自己写的代码不会被覆盖。
+    """
+    src_root = os.path.join(PROJECT_DIR, "examples", "client")
+    dst_root = os.path.join(user_stack_dir, "workspace")
+    if not os.path.isdir(src_root):
+        return
+    for root, _dirs, files in os.walk(src_root):
+        rel = os.path.relpath(root, src_root)
+        target = dst_root if rel == "." else os.path.join(dst_root, rel)
+        os.makedirs(target, exist_ok=True)
+        for fn in files:
+            src, dst = os.path.join(root, fn), os.path.join(target, fn)
+            if os.path.exists(dst):
+                continue
+            try:
+                shutil.copy2(src, dst)
+            except OSError:
+                pass
+
+
 def generate_user_compose(rec, component):
     """从原始组件 compose 生成用户专属副本。改写规则：
     1. container_name: X        -> u<uid>-X   （容器名全局唯一）
@@ -841,6 +867,11 @@ def generate_user_compose(rec, component):
         if in_ports:
             pm = PORT_MAP_RE.match(line)
             if pm:
+                if component == "client":
+                    # 用户端口块 200 个已被前 10 个组件占满；开发容器只通过
+                    # docker exec 使用，一旦误写 ports 就会落到下一个用户的端口段。
+                    return None, ("开发容器 client 不发布宿主机端口（用户端口段已分配满）；"
+                                  "请改用 expose 或通过 docker exec 进入")
                 if slot >= PORTS_PER_COMP:
                     return None, "组件 %s 发布端口超过 %d 个，无法分配" % (component, PORTS_PER_COMP)
                 target = int(pm.group(3))
@@ -860,6 +891,8 @@ def generate_user_compose(rec, component):
                 line = bm.group(1) + "../../" + bm.group(2)
         out.append(line)
     os.makedirs(stack_dir(rec), exist_ok=True)
+    if component == "client":
+        sync_client_examples(stack_dir(rec))
     dst = stack_compose(rec, component)
     with open(dst, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(out) + "\n")

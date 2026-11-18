@@ -1,6 +1,14 @@
 # BigData CLI 使用手册
 
-`bigdata-cli.bat` 是本项目在 Windows 下的统一管理入口。它优先在已接入 Docker Desktop 的 WSL 中调用 `bigdata-cli.sh`；如果 WSL 内无法使用 Docker、但系统已安装 Git for Windows，则自动改用 Git Bash。Shell 脚本负责完成镜像构建、容器启停、状态查看、日志查看和测试执行。
+本项目有两类管理入口：CLI 面向管理员侧的镜像与批量操作，网页平台面向学生侧的按账号实验。
+
+| 入口 | 文件 | 主要用途 |
+|---|---|---|
+| 英文 CLI | `bigdata-cli.bat` → `bigdata-cli.sh` | 构建镜像、启停组件、查看日志与状态、运行组件测试 |
+| 中文 CLI | `bigdata-cli-zh.bat` → `bigdata-cli-zh.sh` | 功能完全相同，仅提示与菜单汉化（`.bat` 为 GBK 编码） |
+| 网页多用户平台 | `docker-manager\start.bat` / `start-lan.bat` → `docker-relay.py` | 账号登录、每用户独立容器、网页终端与全交互 TTY；学生入口 `http://<服务器IP>:8000/login` |
+
+`bigdata-cli.bat` 在 Windows 下优先在已接入 Docker Desktop 的 WSL 中调用 `bigdata-cli.sh`；如果 WSL 内无法使用 Docker、但系统已安装 Git for Windows，则自动改用 Git Bash。Shell 脚本负责完成镜像构建、容器启停、状态查看、日志查看和测试执行。两类入口共用同一批 `dockerfile.*` / `docker-compose.*.yml` 和镜像，管理员构建一次后学生即可在网页里启停自己的容器；分工见[与网页平台的分工](#与网页平台的分工)。
 
 本文以 Windows 10/11、Docker Desktop、WSL2 和 PowerShell 为主要环境。示例中的项目目录为 `E:\Programs\Bigdata`，如果项目位于其他位置，请替换为实际路径。
 
@@ -26,7 +34,19 @@ PowerShell 或 CMD
             -> test/*.sh 执行组件测试
 ```
 
-因此，`.bat` 文件是 Windows 包装器，实际管理逻辑位于 `bigdata-cli.sh`。
+因此，`.bat` 文件是 Windows 包装器，实际管理逻辑位于 `bigdata-cli.sh`。中文版 `bigdata-cli-zh.bat` 的调用链相同，只是改为执行 `bigdata-cli-zh.sh`。
+
+### 与网页平台的分工
+
+| 事项 | CLI | 网页多用户平台 |
+|---|---|---|
+| 构建 / 删除镜像 | 支持 `build` / `delete` | 管理员在 `/bigdata` 也可构建；普通用户无此权限 |
+| 启停组件 | 操作宿主机上的**主平台**容器 | 操作登录用户自己那套 `u<uid>-*` 容器 |
+| 组件依赖 | 不隐式启动上游组件，按 README 的依赖顺序手工启动 | 按拓扑自动先起 Hadoop / ZooKeeper / MySQL 等 |
+| 进入容器 | 本机 `docker exec -it` | 网页 `>_ 终端` 与 `▣ 全交互`，学生机无需安装 Docker |
+| 典型使用者 | 管理员 / 教师备课 | 学生在局域网内按账号实验 |
+
+两套环境共用镜像，但容器、网络、端口和数据互相隔离：CLI 的 `status` / `clean` 不会管理网页平台生成的学生容器。学生环境文件在 `stacks/<用户名>/`，清理请在 `/users` 或 `/portal` 操作。网页平台的完整说明见 [README.md](README.md#多用户实验平台网页版)。
 
 ## 2. 使用前提
 
@@ -80,9 +100,11 @@ Test-Path 'C:\Program Files\Git\bin\bash.exe'
 Set-Location E:\Programs\Bigdata
 Get-Item .\bigdata-cli.bat
 Get-Item .\bigdata-cli.sh
+Get-Item .\bigdata-cli-zh.bat      # 可选：中文版
+Get-Item .\bigdata-cli-zh.sh
 ```
 
-通过条件：两个脚本都存在。Windows 使用 `.bat` 时不需要执行 `chmod +x`，包装器会使用 `bash` 读取 Shell 脚本。
+通过条件：所选版本的 `.bat` 与 `.sh` 都存在。Windows 使用 `.bat` 时不需要执行 `chmod +x`，包装器会使用 `bash` 读取 Shell 脚本。注意 `bigdata-cli-zh.bat` 必须以 **GBK + CRLF** 保存（cmd.exe 的 936 代码页），用 UTF-8 重存会导致中文提示乱码；两个 `.sh` 均为 UTF-8 + LF。
 
 ### 2.3 创建公共 Docker 网络
 
@@ -153,6 +175,8 @@ HBase 和 Hive 镜像基于 `bigdata-hadoop:latest`，因此必须先构建 Hado
 .\bigdata-cli.bat build hbase
 .\bigdata-cli.bat build hive
 ```
+
+`client` 没有独立离线包：它基于 `bigdata-spark:latest`（两阶段构建），因此构建顺序是 `base → spark → client`。示例源码在 `examples/client/`，构建时拷入镜像 `/opt/client-examples/`，启动时按文件粒度增量投放到 `/workspace`（不覆盖已有代码）；`examples/course/` 是宿主机课堂讲义，已在 `.dockerignore` 中排除。运行态代码目录 `./workspace` 与学生 `stacks/<用户名>/workspace` 均已加入 `.gitignore`。
 
 五节点全栈镜像所需的完整文件检查见 [PySpark教学操作手册.md](PySpark教学操作手册.md#111-构建与启动)。
 
@@ -297,8 +321,9 @@ PowerShell 示例：
 | `flink` | Flink 集群 | `bigdata-flink:latest` |
 | `flume` | Flume 服务 | `bigdata-flume:latest` |
 | `mysql` | Hive Metastore 数据库 | `bigdata-mysql:latest` |
+| `client` | 代码开发/作业提交容器（预装客户端库；无宿主机端口、无专用测试脚本） | `bigdata-client:latest` |
 
-`hadoop` 与 `hadoop-ha` 使用不同 Compose 和配置，但共用同一个 Hadoop 镜像。
+`list` 会同时打印每个组件的用途说明与示例目录。`hadoop` 与 `hadoop-ha` 使用不同 Compose 和配置，但共用同一个 Hadoop 镜像；`client` 的父镜像是 `bigdata-spark:latest`，构建前需先准备好 Spark 镜像。
 
 ## 7. 命令说明
 
@@ -319,6 +344,8 @@ PowerShell 示例：
 | `test` | `test spark` | 执行 `test/test-spark.sh` | 会创建并清理测试数据 |
 | `list` | `list` | 显示组件和架构 | 不需要组件参数 |
 | `clean-volumes` | `clean-volumes` | 删除 Docker 主机上所有悬空卷 | 系统级清理，可能不可恢复 |
+
+`client` 是唯一没有 `test/test-client.sh` 的组件。执行 `test client` 时 CLI 只检查容器是否运行，并提示进入容器执行 `python3 /workspace/python/check_libs.py` 自检，不会输出「Component test completed successfully」；完整示例见 8.5 节。
 
 `clean` 和 `clean-volumes` 的命令行模式不会再次询问确认。执行前应确认卷中没有需要保留的数据。交互菜单中的 `Clean ALL Project Containers, Networks and Volumes` 与命令行的按组件 `clean` 不同：它不要求选择组件，但会先要求确认，然后清理本项目所有 Compose 部署资源和公共网络 `bigdata-net`。
 
@@ -425,6 +452,33 @@ PySpark 的手工实验和通过条件见 [PySpark教学操作手册.md](PySpark
 ```
 
 HBase、Hive、Kafka、Spark 等组件还依赖 Hadoop、MySQL 或 ZooKeeper。应按照 [README.md](README.md) 中的依赖顺序启动，CLI 不会隐式启动上游组件。
+
+### 8.5 client 开发容器与 Kafka Python 示例
+
+`client` 是纯开发节点，不发布宿主机端口、不启动服务进程。构建前先准备父镜像 `bigdata-spark:latest`：
+
+```powershell
+.\bigdata-cli.bat build spark
+.\bigdata-cli.bat build client
+.\bigdata-cli.bat start zookeeper
+.\bigdata-cli.bat start kafka
+.\bigdata-cli.bat start client
+docker exec -it client bash -l
+```
+
+进入容器后：
+
+```bash
+cd /workspace
+python3 python/check_libs.py
+python3 python/kafka_producer.py --topic cli-demo --count 5
+python3 python/kafka_consumer.py --topic cli-demo --max 5
+```
+
+- 示例源码位于宿主机 `examples/client/`，每次启动按文件粒度增量投放到 `/workspace`，学生改动不会被覆盖。
+- Kafka 2.4.1 默认开启 `auto.create.topics.enable`，**换用全新 topic 不需要预先创建**（默认 3 分区 / 3 副本）；需要指定分区数时再执行 `kafka-topics.sh --create`。
+- 学生专属环境里容器名是 `u<uid>-client`，但脚本默认 bootstrap `kafka1:9092,kafka2:9092,kafka3:9092` **不需要改写**：用户栈只重命名容器，服务名与 `advertised.listeners` 保持原样。
+- 更多示例见 [examples/client/README.md](examples/client/README.md) 与 [README.md 代码开发容器](README.md#代码开发容器client)。
 
 ## 9. 五节点全栈示例
 
@@ -710,6 +764,21 @@ Remove-Item Env:HADOOP_ENVIRONMENT -ErrorAction SilentlyContinue
 .\bigdata-cli.bat -a multi test all
 .\bigdata-cli.bat -a multi stop all
 .\bigdata-cli.bat -a multi destroy all
+
+# 中文版（功能相同，提示与菜单汉化）
+.\bigdata-cli-zh.bat --help
+.\bigdata-cli-zh.bat list
+.\bigdata-cli-zh.bat status hadoop
+
+# 代码开发容器
+.\bigdata-cli.bat build client
+.\bigdata-cli.bat start client
+.\bigdata-cli.bat status client
+docker exec -it client bash -l
+
+# 网页多用户平台（管理员 / 学生）
+docker-manager\start.bat          # 本机 http://127.0.0.1:8000/login
+docker-manager\start-lan.bat      # 局域网 http://<服务器IP>:8000/login
 ```
 
 ## 14. Linux 或 WSL 中直接使用
@@ -729,4 +798,4 @@ bash bigdata-cli.sh start hadoop
 bash /mnt/e/Programs/Bigdata/bigdata-cli.sh status hadoop
 ```
 
-Linux/WSL 的命令、架构和组件参数与 Windows 包装器相同。
+Linux/WSL 的命令、架构和组件参数与 Windows 包装器相同；把脚本名换成 `bigdata-cli-zh.sh` 即为中文版。网页平台在 Linux 下用 `bash docker-manager/start.sh`（本机）或 `bash docker-manager/start-lan.sh`（局域网）启动。

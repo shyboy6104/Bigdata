@@ -1,0 +1,201 @@
+# ===============================================================
+# 大数据代码开发容器（client / edge node）
+#
+# 作用：预装 Hadoop / Spark / Hive / Kafka / Flink / Flume 的客户端工具
+#       与 Python / Java 开发库，用于编写、提交、运行 Spark / Flink /
+#       MapReduce 作业，并通过代码调用 HDFS / Hive / Kafka / Flume 的 API。
+#
+# 父镜像：bigdata-spark:latest
+#   已包含 OpenJDK 8、Spark 3.1.1（spark-submit / pyspark / py4j）、
+#   python3、vim、netcat-openbsd。本镜像只补齐「客户端」而不是再装一套集群。
+#
+# 设计约定：
+#   1. 本容器不启动任何大数据服务，也不发布宿主机端口，纯粹作为开发/提交节点；
+#      通过 docker exec（网页「▣ 全交互」终端或「>_ 终端」）进入使用。
+#   2. 不占用多用户体系的端口配额，因此每用户可以独立开一套。
+#   3. 集群地址全部使用服务名（namenode / hive-metastore / kafka1 等），
+#      主平台与用户专属网络均可直接解析。
+#
+# 体积优化（2026-11-18）：改为两阶段构建。
+#   旧写法把「COPY 1.14GB 离线包到 /tmp」与「解压后 rm」拆成两条指令，
+#   压缩包那一层被永久钉死在镜像里（rm 只加 whiteout 标记，并不减小镜像），
+#   这是 7.15GB 的主要来源。现在解包、裁剪全在临时阶段完成，最终镜像只
+#   COPY 裁剪后的目录，压缩包层根本不进入最终镜像。
+#   裁剪范围严格限定为「运行时绝不读取」的离线文档与源码 jar；所有
+#   examples（含 Hadoop wordcount / SparkPi 等教学示例）、Flink opt/ 可选
+#   connector、Hive jdbc/、Hadoop tools/、apt 编译工具一律保留。
+# ===============================================================
+
+# 全局版本号：解包阶段与最终阶段共用，升级组件只需改这一处。
+ARG HADOOP_VERSION=3.1.3
+ARG HIVE_VERSION=3.1.2
+ARG KAFKA_VERSION=2.4.1
+ARG KAFKA_SCALA_VERSION=2.12
+ARG FLINK_VERSION=1.14.0
+ARG FLUME_VERSION=1.9.0
+ARG MAVEN_VERSION=3.6.3
+
+# ---------------------------------------------------------------
+# 阶段 1：解包 + 裁剪
+#   本阶段的所有层（含 1.14GB 离线包）都不会进入最终镜像。
+#   基础镜像复用父镜像：与最终阶段共享同一批基础层，不额外占磁盘，
+#   也不需要联网拉取新的 builder 基础镜像。
+# ---------------------------------------------------------------
+FROM bigdata-spark:latest AS unpack
+ARG HADOOP_VERSION
+ARG HIVE_VERSION
+ARG KAFKA_VERSION
+ARG KAFKA_SCALA_VERSION
+ARG FLINK_VERSION
+ARG FLUME_VERSION
+ARG MAVEN_VERSION
+
+COPY module/hadoop-${HADOOP_VERSION}.tar.gz \
+     module/apache-hive-${HIVE_VERSION}-bin.tar.gz \
+     module/kafka_${KAFKA_SCALA_VERSION}-${KAFKA_VERSION}.tgz \
+     module/flink-${FLINK_VERSION}-bin-scala_${KAFKA_SCALA_VERSION}.tar \
+     module/apache-flume-${FLUME_VERSION}-bin.tar.gz \
+     module/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
+     module/mysql-connector-java-5.1.49.jar \
+     module/guava-27.0-jre.jar \
+     /tmp/
+
+RUN set -eux; \
+    tar -xzf /tmp/hadoop-${HADOOP_VERSION}.tar.gz -C /opt; \
+    mv /opt/hadoop-${HADOOP_VERSION} /opt/hadoop; \
+    tar -xzf /tmp/apache-hive-${HIVE_VERSION}-bin.tar.gz -C /opt; \
+    mv /opt/apache-hive-${HIVE_VERSION}-bin /opt/hive; \
+    tar -xzf /tmp/kafka_${KAFKA_SCALA_VERSION}-${KAFKA_VERSION}.tgz -C /opt; \
+    mv /opt/kafka_${KAFKA_SCALA_VERSION}-${KAFKA_VERSION} /opt/kafka; \
+    tar -xf /tmp/flink-${FLINK_VERSION}-bin-scala_${KAFKA_SCALA_VERSION}.tar -C /opt; \
+    mv /opt/flink-${FLINK_VERSION}-bin-scala_${KAFKA_SCALA_VERSION} /opt/flink; \
+    tar -xzf /tmp/apache-flume-${FLUME_VERSION}-bin.tar.gz -C /opt; \
+    mv /opt/apache-flume-${FLUME_VERSION}-bin /opt/flume; \
+    tar -xzf /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz -C /opt; \
+    mv /opt/apache-maven-${MAVEN_VERSION} /opt/maven; \
+    rm -f /opt/hive/lib/guava-*.jar; \
+    cp /tmp/guava-27.0-jre.jar /opt/hive/lib/; \
+    cp /tmp/mysql-connector-java-5.1.49.jar /opt/hive/lib/; \
+    rm -f /tmp/*.tar.gz /tmp/*.tgz /tmp/*.tar /tmp/*.jar; \
+    rm -rf /opt/hadoop/share/doc /opt/flume/docs /opt/kafka/site-docs; \
+    find /opt/hadoop /opt/hive /opt/flink /opt/flume /opt/kafka -type f \( -name '*-sources.jar' -o -name '*-tests.jar' -o -name '*-test.jar' \) -delete; \
+    find /opt/hadoop /opt/hive /opt/flink /opt/flume /opt/kafka -maxdepth 2 -type f \( -name 'CHANGELOG*' -o -name 'DEVNOTES*' \) -delete; \
+    mkdir -p /opt/hadoop/logs /opt/hive/logs /opt/flink/log /opt/flume/logs /out; \
+    mv /opt/hadoop /opt/hive /opt/kafka /opt/flink /opt/flume /opt/maven /out/
+
+# ---------------------------------------------------------------
+# 阶段 2：最终镜像
+# ---------------------------------------------------------------
+FROM bigdata-spark:latest
+ARG HADOOP_VERSION
+ARG HIVE_VERSION
+ARG KAFKA_VERSION
+ARG KAFKA_SCALA_VERSION
+ARG FLINK_VERSION
+ARG FLUME_VERSION
+ARG MAVEN_VERSION
+
+ENV HADOOP_VERSION=${HADOOP_VERSION} \
+    HIVE_VERSION=${HIVE_VERSION} \
+    KAFKA_VERSION=${KAFKA_VERSION} \
+    KAFKA_SCALA_VERSION=${KAFKA_SCALA_VERSION} \
+    FLINK_VERSION=${FLINK_VERSION} \
+    FLUME_VERSION=${FLUME_VERSION} \
+    MAVEN_VERSION=${MAVEN_VERSION} \
+    HADOOP_HOME=/opt/hadoop \
+    HIVE_HOME=/opt/hive \
+    KAFKA_HOME=/opt/kafka \
+    FLINK_HOME=/opt/flink \
+    FLUME_HOME=/opt/flume \
+    MAVEN_HOME=/opt/maven \
+    HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop \
+    YARN_CONF_DIR=/opt/hadoop/etc/hadoop \
+    HIVE_CONF_DIR=/opt/hive/conf \
+    SPARK_CONF_DIR=/opt/spark/conf
+
+ENV PATH=$MAVEN_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$HIVE_HOME/bin:$KAFKA_HOME/bin:$FLINK_HOME/bin:$FLUME_HOME/bin:$SPARK_HOME/bin:$SPARK_HOME/sbin:$PATH
+
+# ---------------------------------------------------------------
+# 系统依赖：pip / 编译工具（Python C 扩展、部分 Java 客户端依赖）
+# 多源自动回退：清华 → 阿里云 → Ubuntu 官方。
+# 原因：单一镜像站可能出现 CDN 节点瞬时全部拒绝连接（实测阿里云
+# 163.177.155.x 整段 Connection refused），教学网络也不可控。
+# 判断标准：apt update 成功 且 python3-pip 可定位，才算该源可用。
+# ---------------------------------------------------------------
+RUN set -eux; \
+    ok=; \
+    for m in https://mirrors.tuna.tsinghua.edu.cn/ubuntu \
+             https://mirrors.aliyun.com/ubuntu \
+             http://archive.ubuntu.com/ubuntu; do \
+        printf 'deb %s focal main restricted universe multiverse\ndeb %s focal-updates main restricted universe multiverse\ndeb %s focal-security main restricted universe multiverse\n' "$m" "$m" "$m" > /etc/apt/sources.list; \
+        if apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=25 update >/tmp/apt.log 2>&1 \
+           && apt-cache show python3-pip >/dev/null 2>&1; then \
+            echo "APT mirror OK: $m"; ok=1; break; \
+        fi; \
+        echo "APT mirror failed, trying next: $m"; \
+    done; \
+    if [ -z "$ok" ]; then cat /tmp/apt.log; echo "FATAL: all apt mirrors failed"; exit 1; fi; \
+    apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    python3-pip \
+    python3-dev \
+    python3-setuptools \
+    build-essential \
+    libsasl2-dev \
+    libssl-dev \
+    libffi-dev \
+    git \
+    nano \
+    less \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# 只复制裁剪后的组件目录（不含离线包、离线文档、源码 jar）
+COPY --from=unpack /out/ /opt/
+
+RUN mkdir -p /workspace /scripts /opt/spark/conf
+
+# ---------------------------------------------------------------
+# Python 开发库
+#   pyspark 由父镜像的 Spark 3.1.1 自带（PYTHONPATH 已配置），
+#   这里绝不 pip 安装 pyspark，避免与集群版本不一致。
+#   版本锁定为兼容 Ubuntu 20.04 自带 Python 3.8 的最后一组稳定版本。
+# ---------------------------------------------------------------
+RUN pip3 install --no-cache-dir --retries 5 --timeout 30 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    --extra-index-url https://mirrors.aliyun.com/pypi/simple/ \
+    "wheel" \
+    "numpy==1.21.6" \
+    "pandas==1.3.5" \
+    "kafka-python==2.0.2" \
+    "PyHive==0.7.0" \
+    "thrift==0.16.0" \
+    "thrift-sasl==0.4.3" \
+    "pure-sasl==0.6.2" \
+    "hdfs==2.7.3" \
+    "avro-python3==1.10.2" \
+    "requests==2.27.1"
+
+# 构建期自检：任何库缺失都让镜像构建直接失败，而不是等到上课才发现。
+RUN python3 -c "import pyspark, kafka, pyhive, hdfs, pandas, numpy, thrift, thrift_sasl, avro, requests; print('Python client libraries OK')" && \
+    test -x /opt/hadoop/bin/hadoop && \
+    test -x /opt/hive/bin/beeline && \
+    test -x /opt/kafka/bin/kafka-console-producer.sh && \
+    test -x /opt/flink/bin/flink && \
+    test -f /opt/flume/lib/flume-ng-sdk-${FLUME_VERSION}.jar && \
+    test -x /opt/maven/bin/mvn
+
+# ---------------------------------------------------------------
+# 配置模板、启动脚本与示例代码
+# ---------------------------------------------------------------
+COPY config/ /config/
+COPY scripts/client-entrypoint.sh /scripts/client-entrypoint.sh
+COPY examples/client/ /opt/client-examples/
+RUN chmod +x /scripts/client-entrypoint.sh
+
+WORKDIR /workspace
+
+# 22 仅供容器间 SSH，不在 compose 中映射到宿主机。
+EXPOSE 22
+
+# 必须覆盖父镜像的 spark-entrypoint.sh（那是按 ROLE 启动 master/worker 的）。
+ENTRYPOINT ["/scripts/client-entrypoint.sh"]

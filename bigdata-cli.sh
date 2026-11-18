@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-COMPONENTS=("hadoop" "hadoop-ha" "zookeeper" "hbase" "hive" "kafka" "spark" "flink" "flume" "mysql")
+COMPONENTS=("hadoop" "hadoop-ha" "zookeeper" "hbase" "hive" "kafka" "spark" "flink" "flume" "mysql" "client")
 SINGLE_COMPOSE_FILES=(
     "docker-compose.hadoop.yml"
     "docker-compose.hadoop-ha.yml"
@@ -29,6 +29,7 @@ SINGLE_COMPOSE_FILES=(
     "docker-compose.flink.yml"
     "docker-compose.flume.yml"
     "docker-compose.mysql.yml"
+    "docker-compose.client.yml"
 )
 MULTI_COMPOSE_FILE="docker-compose.5-node-cluster.yml"
 SHARED_NETWORK_NAME="bigdata-net"
@@ -611,8 +612,14 @@ test_component() {
                 return 1
             fi
         else
-            print_warning "Test script not found: $test_script"
-            print_info "Performing basic connectivity test..."
+            if [ "$component" = "client" ]; then
+                print_warning "No dedicated test script for 'client': it is a development container with no service process"
+                print_info "Self-check: docker exec -it client bash -l  ->  python3 /workspace/python/check_libs.py"
+                print_info "Examples: examples/client/ | Runtime code: ./workspace or stacks/<user>/workspace"
+            else
+                print_warning "Test script not found: $test_script"
+                print_info "Performing basic connectivity test..."
+            fi
             
             # 基本连接性测试：检查容器是否在运行
             local running_containers=$("${COMPOSE_CMD[@]}" -f "$compose_file" ps --services --filter "status=running" 2>/dev/null)
@@ -631,10 +638,27 @@ test_component() {
 # List available components
 list_components() {
     echo -e "${BLUE}=== Available Components ===${NC}"
+    local descriptions=(
+        "Hadoop standard cluster (HDFS / YARN)"
+        "Hadoop HA cluster (QJM + ZKFC)"
+        "ZooKeeper 3-node quorum"
+        "HBase cluster"
+        "Hive + Metastore"
+        "Kafka 3-broker cluster"
+        "Spark Standalone / YARN"
+        "Flink cluster"
+        "Flume log collection"
+        "MySQL for Hive Metastore"
+        "Code development container (no host ports, no test script)"
+    )
+    local index=0
     for component in "${COMPONENTS[@]}"; do
-        echo "  - $component"
+        printf "  - %-12s %s\n" "$component" "${descriptions[$index]}"
+        ((index++))
     done
-    
+    echo ""
+    echo "  Examples: examples/client/ (container) | examples/course/ (host PySpark)"
+
     echo -e "\n${BLUE}=== Architecture Types ===${NC}"
     echo "  - single: Single-component independent clusters"
     echo "  - multi: 5-node full-stack cluster"
@@ -644,6 +668,7 @@ list_components() {
     echo "  Start full-stack cluster: $0 --architecture multi start all"
     echo "  Check ZooKeeper status: $0 status zookeeper"
     echo "  Test Kafka component: $0 test kafka"
+    echo "  Web UI: docker-manager/start.bat (local) or start-lan.bat (LAN), /portal for students"
 }
 
 # Help information
@@ -681,7 +706,7 @@ show_help() {
     echo "  list                        List available components"
     echo "  clean-volumes               Clean all unused volumes in the system"
     echo ""
-    echo "Components: hadoop, hadoop-ha, zookeeper, hbase, hive, kafka, spark, flink, flume, mysql"
+    echo "Components: hadoop, hadoop-ha, zookeeper, hbase, hive, kafka, spark, flink, flume, mysql, client"
     echo ""
     echo "Examples:"
     echo "  $0                           # Start interactive menu"
@@ -691,6 +716,12 @@ show_help() {
     echo "  $0 status zookeeper          # Check ZooKeeper status"
     echo "  $0 logs kafka -f             # Follow Kafka logs in real-time"
     echo "  $0 -a multi supervisor all   # Check supervisor status for full cluster"
+    echo ""
+    echo "Web UI (accounts + per-user isolated containers):"
+    echo "  Windows:   docker-manager/start.bat       # http://127.0.0.1:8000/login"
+    echo "  Windows:   docker-manager/start-lan.bat   # LAN access (0.0.0.0:8000)"
+    echo "  Linux/WSL: bash docker-manager/start.sh  (or start-lan.sh)"
+    echo "  Client self-check: docker exec -it client bash -l -> python3 /workspace/python/check_libs.py"
 }
 
 # Interactive menu functions
@@ -736,6 +767,8 @@ show_component_menu() {
             ((index++))
         done
         echo "0. Back to Architecture Selection"
+        echo ""
+        echo "  Web UI: docker-manager/start.bat / start-lan.bat -> /portal (per-user containers)"
         echo ""
         echo -n "Enter your choice (0-$((index-1))): "
     fi
@@ -1140,23 +1173,23 @@ main() {
             clean_containers "$component" "$architecture"
             ;;
         status)
-        show_status "$component" "$architecture"
-        ;;
-    logs)
-        show_logs "$component" "$architecture" "$follow_logs"
-        ;;
-    supervisor)
-        show_supervisor_status "$component" "$architecture"
-        ;;
-    test)
-        test_component "$component" "$architecture"
-        ;;
-    list)
-        list_components
-        ;;
-    clean-volumes)
-        clean_all_volumes
-        ;;
+            show_status "$component" "$architecture"
+            ;;
+        logs)
+            show_logs "$component" "$architecture" "$follow_logs"
+            ;;
+        supervisor)
+            show_supervisor_status "$component" "$architecture"
+            ;;
+        test)
+            test_component "$component" "$architecture"
+            ;;
+        list)
+            list_components
+            ;;
+        clean-volumes)
+            clean_all_volumes
+            ;;
     "")
         show_help
         ;;

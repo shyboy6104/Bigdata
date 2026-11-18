@@ -2,7 +2,7 @@
 
 运行方式：
     conda activate pyspark_proj
-    python DEMO/pyspark-hdfs-example-local.py
+    python examples/course/pyspark-hdfs-example-local.py
 
 Driver 在 Windows 中运行，Spark Executor 和 Hadoop HDFS 在 Docker 中运行。
 程序依次完成：创建 DataFrame -> 写入 HDFS -> 从 HDFS 读回 -> 汇总展示。

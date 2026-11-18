@@ -10,14 +10,16 @@ services:
   # ZooKeeper节点1配置
   # 作用：ZooKeeper集群的第一个节点
   # 原理：每个节点有唯一的ID，通过配置文件形成集群
-  # 端口映射：12181是ZooKeeper的标准客户端端口
+  # 端口映射：容器内 2181 为 ZooKeeper 标准客户端端口；宿主机侧映射到 12181，
+  # 避开 Windows 保留端口排除区间 2180-2279（否则 docker 绑定报 HTTP 500 / bind forbidden）。
+  # Kafka 通过内部服务名 zoo1:2181 连接，不受宿主机端口改动影响。
   # ===============================================
   zoo1:
     image: bigdata-zookeeper:latest
     container_name: zoo1
     hostname: zoo1
     ports:
-      - "2181:2181"  # 客户端连接端口
+      - "12181:2181"  # 宿主机 12181 -> 容器 2181
     environment:
       ZOO_MY_ID: 1  # 节点唯一标识
     volumes:
@@ -31,14 +33,14 @@ services:
   # ZooKeeper节点2配置
   # 作用：ZooKeeper集群的第二个节点
   # 原理：通过不同的主机端口实现多节点部署
-  # 端口映射：12182映射到容器内的2181端口
+  # 端口映射：宿主机 12182 -> 容器内 2181
   # ===============================================
   zoo2:
     image: bigdata-zookeeper:latest
     container_name: zoo2
     hostname: zoo2
     ports:
-      - "2182:2181"  # 客户端连接端口（不同主机端口）
+      - "12182:2181"  # 宿主机 12182 -> 容器 2181
     environment:
       ZOO_MY_ID: 2  # 节点唯一标识
     volumes:
@@ -52,14 +54,14 @@ services:
   # ZooKeeper节点3配置
   # 作用：ZooKeeper集群的第三个节点，形成仲裁集群
   # 原理：3节点集群确保在单节点故障时仍能形成多数派
-  # 端口映射：12183映射到容器内的2181端口
+  # 端口映射：宿主机 12183 -> 容器内 2181
   # ===============================================
   zoo3:
     image: bigdata-zookeeper:latest
     container_name: zoo3
     hostname: zoo3
     ports:
-      - "2183:2181"  # 客户端连接端口（不同主机端口）
+      - "12183:2181"  # 宿主机 12183 -> 容器 2181
     environment:
       ZOO_MY_ID: 3
     volumes:

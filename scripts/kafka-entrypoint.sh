@@ -98,7 +98,15 @@ if [ -f "$META_FILE" ]; then
                 | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
                 | head -1)
             
-            if [ -n "$LOCAL_CLUSTER_ID" ] && [ -n "$ZK_CLUSTER_ID" ] && [ "$LOCAL_CLUSTER_ID" != "$ZK_CLUSTER_ID" ]; then
+            # ZK 里读不到 /cluster/id 说明这是全新 ZK 集群（或 ZK 数据被清空重建），
+            # 此时本地残留的 meta.properties 一定属于旧集群。若不删除，Kafka 启动时会
+            # 生成新 clusterId 并与本地旧值冲突，抛 InconsistentClusterIdException 直接退出。
+            # 旧逻辑在这里取到空 ZK_CLUSTER_ID 会误判为「检查通过」，导致首次启动必失败、
+            # 需手动重启一次才自愈 —— 这里补上该边界。
+            if [ -z "$ZK_CLUSTER_ID" ]; then
+                echo "ZooKeeper 尚无 /cluster/id（全新集群），删除本地残留 meta.properties，让 broker 全新注册..."
+                rm -f "$META_FILE"
+            elif [ -n "$LOCAL_CLUSTER_ID" ] && [ "$LOCAL_CLUSTER_ID" != "$ZK_CLUSTER_ID" ]; then
                 echo "ClusterId不一致! 本地: $LOCAL_CLUSTER_ID, ZooKeeper: $ZK_CLUSTER_ID"
                 echo "删除本地meta.properties，让Kafka重新注册..."
                 rm -f "$META_FILE"

@@ -1,0 +1,42 @@
+# ===============================================================
+# 大数据代码开发容器（client / edge node）
+#
+# 只提供「编写 / 提交 / 运行」代码的客户端环境，不启动任何大数据服务，
+# 也不发布宿主机端口 —— 因此不占用多用户体系的端口配额，每个用户可以
+# 独立开一套，代码目录 ./workspace 随用户栈落到 stacks/<用户名>/workspace。
+#
+# 集群地址全部使用服务名（namenode / hive-metastore / kafka1 / spark-master），
+# 主平台共享网络与各用户专属网络均可直接解析。
+#
+# 使用前请先启动要用到的组件（HDFS / Spark / Kafka / Hive 等）；
+# 进入容器：网页「▣ 全交互」终端，或 docker exec -it client bash -l
+# ===============================================================
+services:
+  client:
+    image: bigdata-client:latest
+    container_name: client
+    hostname: client
+    environment:
+      # 默认由挂载的 config/environment.conf 决定 standard / ha
+      - HADOOP_ENVIRONMENT_OVERRIDE=${HADOOP_ENVIRONMENT:-}
+      # 需要把作业 eventLog 写入 HDFS 并交给 History Server 时设为 true
+      - CLIENT_SPARK_EVENTLOG=${CLIENT_SPARK_EVENTLOG:-false}
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9-src.zip
+    volumes:
+      - ./config/hadoop:/config/hadoop:ro
+      - ./config/hadoop-ha:/config/hadoop-ha:ro
+      - ./config/spark:/config/spark:ro
+      - ./config/hive:/config/hive:ro
+      - ./config/environment.conf:/config/environment.conf:ro
+      # 代码持久化：主平台 ./workspace；用户栈 stacks/<用户名>/workspace
+      - ./workspace:/workspace
+    expose:
+      - "22"   # 容器间 SSH，不映射到宿主机
+    networks:
+      - bigdata-net
+
+networks:
+  bigdata-net:
+    external: true

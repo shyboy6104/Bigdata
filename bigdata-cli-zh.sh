@@ -18,7 +18,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # 无颜色
 
 # 配置
-COMPONENTS=("hadoop" "hadoop-ha" "zookeeper" "hbase" "hive" "kafka" "spark" "flink" "flume" "mysql")
+COMPONENTS=("hadoop" "hadoop-ha" "zookeeper" "hbase" "hive" "kafka" "spark" "flink" "flume" "mysql" "client")
 SINGLE_COMPOSE_FILES=(
     "docker-compose.hadoop.yml"
     "docker-compose.hadoop-ha.yml"
@@ -30,6 +30,7 @@ SINGLE_COMPOSE_FILES=(
     "docker-compose.flink.yml"
     "docker-compose.flume.yml"
     "docker-compose.mysql.yml"
+    "docker-compose.client.yml"
 )
 MULTI_COMPOSE_FILE="docker-compose.5-node-cluster.yml"
 SHARED_NETWORK_NAME="bigdata-net"
@@ -612,8 +613,14 @@ test_component() {
                 return 1
             fi
         else
-            print_warning "测试脚本不存在：$test_script"
-            print_info "执行基本连通性测试..."
+            if [ "$component" = "client" ]; then
+                print_warning "client 无专用测试脚本：它是纯开发容器，不启动服务进程"
+                print_info "自检：docker exec -it client bash -l -> python3 /workspace/python/check_libs.py"
+                print_info "示例：examples/client/ | 运行态代码：./workspace 或 stacks/<用户名>/workspace"
+            else
+                print_warning "测试脚本不存在：$test_script"
+                print_info "执行基本连通性测试..."
+            fi
 
             # 基本连通性测试：检查容器是否在运行
             local running_containers=$("${COMPOSE_CMD[@]}" -f "$compose_file" ps --services --filter "status=running" 2>/dev/null)
@@ -632,9 +639,26 @@ test_component() {
 # 列出可用组件
 list_components() {
     echo -e "${BLUE}=== 可用组件 ===${NC}"
+    local descriptions=(
+        "Hadoop 标准集群（HDFS / YARN）"
+        "Hadoop HA 集群（QJM + ZKFC）"
+        "ZooKeeper 三节点仲裁集群"
+        "HBase 集群"
+        "Hive + Metastore"
+        "Kafka 三 Broker 集群"
+        "Spark Standalone / YARN"
+        "Flink 集群"
+        "Flume 日志采集"
+        "Hive Metastore 用的 MySQL"
+        "代码开发容器（无宿主机端口、无专用测试脚本）"
+    )
+    local index=0
     for component in "${COMPONENTS[@]}"; do
-        echo "  - $component"
+        printf "  - %-12s %s\n" "$component" "${descriptions[$index]}"
+        ((index++))
     done
+    echo ""
+    echo "  示例目录：examples/client/（容器内） | examples/course/（宿主机 PySpark）"
 
     echo -e "\n${BLUE}=== 架构类型 ===${NC}"
     echo "  - single：单组件独立集群"
@@ -645,6 +669,7 @@ list_components() {
     echo "  启动全栈集群：$0 --architecture multi start all"
     echo "  查看 ZooKeeper 状态：$0 status zookeeper"
     echo "  测试 Kafka 组件：$0 test kafka"
+    echo "  网页平台：docker-manager/start.bat（本机）或 start-lan.bat（局域网），学生入口 /portal"
 }
 
 # 帮助信息
@@ -682,7 +707,7 @@ show_help() {
     echo "  list                        列出可用组件"
     echo "  clean-volumes               清理系统内全部未使用的卷"
     echo ""
-    echo "组件：hadoop, hadoop-ha, zookeeper, hbase, hive, kafka, spark, flink, flume, mysql"
+    echo "组件：hadoop, hadoop-ha, zookeeper, hbase, hive, kafka, spark, flink, flume, mysql, client"
     echo ""
     echo "示例："
     echo "  $0                           # 启动交互菜单"
@@ -692,6 +717,12 @@ show_help() {
     echo "  $0 status zookeeper          # 查看 ZooKeeper 状态"
     echo "  $0 logs kafka -f             # 实时跟随 Kafka 日志"
     echo "  $0 -a multi supervisor all   # 查看全栈集群的 Supervisor 状态"
+    echo ""
+    echo "网页平台（账号登录 + 每人独立容器）："
+    echo "  Windows：  docker-manager/start.bat       # http://127.0.0.1:8000/login"
+    echo "  Windows：  docker-manager/start-lan.bat   # 局域网访问（0.0.0.0:8000）"
+    echo "  Linux/WSL：bash docker-manager/start.sh（或 start-lan.sh）"
+    echo "  client 自检：docker exec -it client bash -l -> python3 /workspace/python/check_libs.py"
 }
 
 # 交互菜单函数
@@ -737,6 +768,8 @@ show_component_menu() {
             ((index++))
         done
         echo "0. 返回架构选择"
+        echo ""
+        echo "  网页平台：docker-manager/start.bat / start-lan.bat -> /portal（每人独立容器）"
         echo ""
         echo -n "请输入选项（0-$((index-1))）："
     fi

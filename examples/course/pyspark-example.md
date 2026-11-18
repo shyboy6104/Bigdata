@@ -9,7 +9,7 @@
 ```powershell
 conda activate pyspark_proj
 cd E:\Programs\Bigdata
-python DEMO\pyspark-example-local.py
+python examples\course\pyspark-example-local.py
 ```
 
 - Driver：Windows 本地
@@ -24,7 +24,7 @@ python DEMO\pyspark-example-local.py
 
 ```powershell
 cd E:\Programs\Bigdata
-docker cp DEMO\pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
+docker cp examples\course\pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
 docker exec spark-master python3 /tmp/pyspark-example.py
 ```
 

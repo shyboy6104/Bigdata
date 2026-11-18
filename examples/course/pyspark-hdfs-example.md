@@ -19,7 +19,7 @@ HDFS 目录：
 ```powershell
 conda activate pyspark_proj
 cd E:\Programs\Bigdata
-python DEMO\pyspark-hdfs-example-local.py
+python examples\course\pyspark-hdfs-example-local.py
 ```
 
 本地脚本自动取得 Windows 主机的局域网 IPv4 地址，例如
@@ -30,7 +30,7 @@ python DEMO\pyspark-hdfs-example-local.py
 
 ```powershell
 cd E:\Programs\Bigdata
-docker cp DEMO\pyspark-hdfs-example-docker.py spark-master:/tmp/example.py
+docker cp examples\course\pyspark-hdfs-example-docker.py spark-master:/tmp/example.py
 docker exec spark-master python3 /tmp/example.py
 ```
 

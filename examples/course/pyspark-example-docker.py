@@ -1,7 +1,7 @@
 """PySpark 教学示例：Driver 和 Spark 集群都运行在 Docker 中。
 
 运行方式：
-    docker cp DEMO/pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
+    docker cp examples/course/pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
     docker exec spark-master python3 /tmp/pyspark-example.py
 
 运行结构：

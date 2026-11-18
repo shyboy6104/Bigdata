@@ -58,3 +58,6 @@ Bigdata.zip
 docker-manager/users.json
 docker-manager/users.json.tmp
 stacks/
+
+# 排除代码开发容器的运行态代码目录（示例在 examples/client/，需要入库）
+workspace/

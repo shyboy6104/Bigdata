@@ -2,7 +2,7 @@
 
 运行方式：
     conda activate pyspark_proj
-    python DEMO/pyspark-example-local.py
+    python examples/course/pyspark-example-local.py
 
 运行结构：
     Windows Python（Driver）

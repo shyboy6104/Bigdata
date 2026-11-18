@@ -1,7 +1,7 @@
 """Docker 内的 PySpark 访问 Docker HDFS 的教学示例。
 
 运行方式：
-    docker cp DEMO/pyspark-hdfs-example-docker.py spark-master:/tmp/example.py
+    docker cp examples/course/pyspark-hdfs-example-docker.py spark-master:/tmp/example.py
     docker exec spark-master python3 /tmp/example.py
 
 Driver、Spark Master、Spark Executor 和 Hadoop HDFS 都运行在 Docker 网络中。

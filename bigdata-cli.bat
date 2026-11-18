@@ -2,6 +2,8 @@
 setlocal EnableExtensions
 
 REM BigData CLI Windows wrapper. Keep this file ASCII-compatible for cmd.exe.
+REM Web UI (accounts + per-user containers): docker-manager\start.bat / start-lan.bat
+REM Chinese counterpart: bigdata-cli-zh.bat -> bigdata-cli-zh.sh
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_PATH=%SCRIPT_DIR%bigdata-cli.sh"
 set "WSL_SCRIPT_PATH="

@@ -6,11 +6,11 @@
 
 ## 项目状态
 
-- 已实现 9 类大数据/基础组件，以及 Hadoop HA 部署变体。
-- 已实现 Hadoop 标准模式和 Hadoop HA 模式。
-- 已实现 5 节点全栈集群及 Supervisor 多进程管理。
-- 已提供统一 CLI、组件测试脚本和 PyQt5 配置可视化工具。
-- 已提供独立组件架构与五节点全栈架构，适用于单组件教学和综合实训。
+- 已实现 Hadoop（标准 / HA）、ZooKeeper、HBase、Hive、MySQL、Kafka、Spark、Flink、Flume 9 类组件，以及 `client` 代码开发容器。
+- 已实现独立组件架构与 5 节点全栈架构（Supervisor 多进程管理），适用于单组件教学和综合实训。
+- 已提供网页版多用户实验平台：账号登录、每用户独立容器栈、组件依赖自动启动、局域网访问、逐条命令终端与全交互 TTY。
+- 已提供统一 CLI（中 / 英文）、组件测试脚本、PyQt5 配置可视化工具与 `examples/` 教学示例。
+- `bigdata-client` 采用两阶段构建，镜像体积 7.15GB → 4.23GB；ZooKeeper 宿主机端口避开 Windows 保留区间，Kafka 具备 ClusterId 自愈。
 - 项目定位为教学与实验环境，不建议未经安全加固直接用于生产。
 
 ## 组件与版本
@@ -28,6 +28,7 @@
 | Flume | 1.9.0 | 日志采集与 Kafka 联动 |
 | Spark | 3.1.1 | Standalone 与 YARN 批处理 |
 | Flink | 1.14.0 | 流批处理与作业提交 |
+| Client | — | 代码开发/作业提交容器，预装全套客户端与 Python/Java 库 |
 
 `module/` 中还保存了 Kylin、ClickHouse、Hudi、Redis、Sqoop 等安装包，但当前没有对应的 Dockerfile、Compose、启动脚本和测试，因此不属于已交付组件。
 
@@ -160,6 +161,53 @@ Spark 入口脚本会阻塞等待 `namenode:8020`，因此该顺序是必需的�
 
 两种入口共用 `user_container_allowed()` 三重校验：容器名前缀 `u<uid>-`、`com.docker.compose.project` / `.service` 标签必须属于本人 compose 项目、容器必须正在运行，且 inspect 返回的真实容器名与传入一致。普通用户无法进入他人容器、宿主机主平台容器或手工伪造的同名容器；WebSocket 握手同样要求登录会话（Cookie 为 `SameSite=Lax`）。
 
+### 示例目录
+
+`examples/` 统一存放教学代码，两类示例**运行位置不同**，不要混用：
+
+| 目录 | 运行位置 | 用途 | 进镜像 |
+|---|---|---|---|
+| `examples/client/` | client 容器内的 `/workspace` | 预装客户端的 Python / Java 示例。`dockerfile.client` 拷入 `/opt/client-examples/`，每次启动按文件粒度增量投放给学生，学生可直接在其上改代码 | **是**（构建输入） |
+| `examples/course/` | 宿主机 Windows（conda PySpark） | 课堂讲义与 PySpark 本地 / 容器 / HDFS 演示脚本，含 `.md` 说明；已在 `.dockerignore` 中排除 | 否 |
+
+运行态代码目录另计：主平台 `./workspace`、学生 `stacks/<用户名>/workspace`，都是挂载卷，已加入 `.gitignore`。
+
+### 代码开发容器（client）
+
+`docker-compose.client.yml` + `dockerfile.client` 提供一个**只装客户端、不启动任何服务**的开发节点，用于编写、提交、运行 Spark / Flink / MapReduce 代码，并通过代码调用 HDFS / Hive / Kafka / Flume 的 API。主平台在 `/bigdata` 注册为「代码开发」，普通用户在 `/portal` 也能各开一套（独立网络、独立 `/workspace` 代码目录）。
+
+**镜像**：`bigdata-client:latest`，父镜像为 `bigdata-spark:latest`（**须先构建 Spark 镜像**）。安装包全部取自 `module/` 离线包，版本与 `config/environment.conf` 一致。
+
+> **镜像体积（2026-11-18 优化）**：`dockerfile.client` 改为**两阶段构建** —— 解包与裁剪只在临时阶段完成，1.14GB 离线 tar 包不再进入最终镜像；同时裁掉运行时绝不读取的 Hadoop 离线文档（485MB）、Flume / Kafka 文档与 88 个 `*-sources.jar` / `*-tests.jar`。实测 `7.15GB → 4.23GB`（约省 41%）。Hadoop / Spark 自带的 `examples`（wordcount、SparkPi 等教学示例）、Flink `opt/` 可选 connector、Hive `jdbc/`、Hadoop `tools/`、apt 编译工具**全部保留**。
+> 关键：`COPY` 与「解压后 `rm`」若拆成两条 Dockerfile 指令，压缩包层会被永久钉在镜像里（`rm` 只写 whiteout 标记，不减小镜像），务必保持在同一个临时构建阶段内完成。
+
+| 类别 | 预装内容 |
+|---|---|
+| Spark / PySpark | Spark 3.1.1 的 `spark-submit` / `pyspark` / py4j；`pyspark` 由镜像自带，**不 pip 安装**，避免与集群版本不一致 |
+| Hadoop / MapReduce | Hadoop 3.1.3 客户端：`hdfs` / `yarn` / `hadoop jar` / `mapred` 及 `share/hadoop` 全部 jar |
+| Hive | Hive 3.1.2 的 `beeline` / `hive` CLI、Hive JDBC jar、MySQL Connector/J；Python 侧 `PyHive` + `thrift` + `thrift-sasl` + `pure-sasl` |
+| Kafka | Kafka 2.4.1 控制台脚本与 `kafka-clients` jar；Python 侧 `kafka-python==2.0.2` |
+| Flink | Flink 1.14.0 客户端（`flink run`）与 `lib/*.jar`，用于 Java/Scala 作业编译与提交 |
+| Flume | Flume 1.9.0 的 `flume-ng-sdk` jar + Python `avro-python3`，供 Avro/Thrift source 改造使用 |
+| 其它 | Maven 3.6.3、JDK 8、`BIGDATA_JARS`（离线 `javac -cp`）、`pandas` / `numpy` / `hdfs` / `requests`、vim / nano / git |
+
+**使用步骤**
+
+1. 管理员在 `/bigdata` 构建 `client` 镜像（或 `bash bigdata-cli.sh build client`）；学生无需构建，直接在 `/portal` 点「代码开发 → 启动」。
+2. 启动要操作的组件（用 HDFS 先起 Hadoop、用 Kafka 先起 Kafka）。开发容器**不会自动拉起依赖**——它与所有组件都是可选关系。
+3. 在该容器卡片上点 **▣ 全交互** 进入终端（或用 `>_ 终端` 跑单条命令），代码写在 `/workspace`。
+4. 自检：`cd /workspace && python3 python/check_libs.py`。
+
+**配置自动适配**：`scripts/client-entrypoint.sh` 按 `config/environment.conf` 的 `HADOOP_ENVIRONMENT` 把 `standard` / `ha` 的 Hadoop 配置、Spark 模板（替换 `{{HDFS_NAMESERVICE}}`）、`hive-site.xml` 渲染到各客户端的实际配置目录，并把环境变量写入 `/etc/profile.d/bigdata-client.sh`。因此务必用**登录 shell**（`bash -l`；网页全交互终端已经是登录 shell）。
+
+**代码持久化**：主平台 `./workspace`，学生环境 `stacks/<用户名>/workspace`。`client-entrypoint.sh` 每次启动按文件粒度从 `/opt/client-examples/` 增量投放示例（`cp -n` 不覆盖学生已有代码），因此镜像构建之后新增的示例也能补进已创建的用户栈；网页启动 client 时 `docker-relay.py` 还会从宿主 `examples/client/` 同步一次。两个运行态目录均已加入 `.gitignore`。
+
+**限制**
+
+- 容器**不发布任何宿主机端口**（故不占用每用户 200 个端口的配额），只能通过 `docker exec` 进入；网页终端已覆盖这一入口。
+- 当前 Flume 配置是 `exec source → Kafka sink(topic=flume-logs)`，没有对外监听端口。程序要「接 Flume」就消费该 Kafka topic；若需要直接向 Flume 发送事件，须把 source 改为 `avro` / `netcat` 并发布端口，镜像里已备好 SDK 与 `avro-python3`。
+- 默认关闭 `spark.eventLog.enabled` 以便 `local[*]` 单机调试；需要 History Server 时设 `CLIENT_SPARK_EVENTLOG=true` 或提交时 `--conf spark.eventLog.enabled=true`。
+
 ### 安全说明
 
 relay 以宿主机用户权限调用 Docker，等同于把 Docker 控制权交给已登录用户，**仅在可信局域网内使用**。全交互 TTY 授予的是用户自己容器内的完整 shell；共享的 `config/` 会挂载进每个用户容器，请勿在其中放置敏感信息。账号密码使用 PBKDF2-SHA256 加盐哈希存放于 `docker-manager/users.json`（已加入 `.gitignore`，严禁提交），会话为 12 小时内存态 Cookie，服务重启后需重新登录。
@@ -181,6 +229,15 @@ bash test/test-hadoop.sh
 ```
 
 ## 快速开始
+
+平台提供两个管理入口，可以并用：
+
+| 入口 | 适用场景 | 启动方式 |
+|---|---|---|
+| 统一 CLI（英文 / 中文） | 管理员构建镜像、批量启停、日志与组件测试 | `bigdata-cli.bat` / `bigdata-cli.sh`，或汉化版 `bigdata-cli-zh.bat` / `bigdata-cli-zh.sh` |
+| 网页多用户平台 | 学生按账号登录，各开一套隔离容器，网页内直接操作终端 | 本机 `docker-manager\start.bat`；局域网 `docker-manager\start-lan.bat`，详见[多用户实验平台（网页版）](#多用户实验平台网页版) |
+
+学生实验推荐网页平台；**组件镜像仍需管理员先用 CLI 或 `/bigdata` 页面构建一次**，普通用户只有启停自己容器的权限。CLI 完整用法见 [CLI_USAGE.md](CLI_USAGE.md)。
 
 ### 1. 创建公共网络
 
@@ -216,6 +273,7 @@ docker build -f dockerfile.kafka -t bigdata-kafka:latest .
 docker build -f dockerfile.spark -t bigdata-spark:latest .
 docker build -f dockerfile.flink -t bigdata-flink:latest .
 docker build -f dockerfile.flume -t bigdata-flume:latest .
+docker build -f dockerfile.client -t bigdata-client:latest .   # 父镜像是 bigdata-spark:latest，须最后构建
 ```
 
 `scripts/update-dockerfile-versions.sh` 用于读取 `config/environment.conf`、检查安装包并同步 Dockerfile 版本。该脚本可能访问网络和修改 Dockerfile，运行前建议先提交或暂存本地改动：
@@ -258,6 +316,8 @@ ZooKeeper → Kafka → Flume
 ```
 
 HBase、Hive 基于 `bigdata-hadoop:latest` 构建，构建它们之前需先构建 Hadoop 镜像。Spark 默认读取 `config/environment.conf` 中的 `HADOOP_ENVIRONMENT`；宿主机显式设置同名变量时才临时覆盖共享配置。
+
+`client` 是纯开发节点：不发布宿主机端口、不启动服务进程，也没有专用 `test/test-client.sh`。启动后用 `docker exec -it client bash -l` 进入，`cd /workspace && python3 python/check_libs.py` 自检；示例源码位于 `examples/client/`（详见[代码开发容器](#代码开发容器client)）。网页平台中对应「代码开发」卡片，学生点「▣ 全交互」即可进入。
 
 CLI 完整用法见 [CLI_USAGE.md](CLI_USAGE.md)。也可以直接使用 Compose：
 
@@ -302,7 +362,7 @@ bash bigdata-cli.sh --architecture multi test all
 | Hadoop JobHistory | http://localhost:19888 |
 | Hadoop HA NameNode 1/2 | http://localhost:19870 / http://localhost:29870 |
 | Hadoop HA YARN 1/2 | http://localhost:18088 / http://localhost:28088 |
-| ZooKeeper 1/2/3 | `localhost:2181/2182/2183` |
+| ZooKeeper 1/2/3 | `localhost:12181/12182/12183`（容器内仍是 2181；避开 Windows 保留端口 2180-2279） |
 | HBase Master | http://localhost:16210 |
 | HBase RegionServer 1/2 | http://localhost:16030 / http://localhost:16031 |
 | HBase REST / Thrift | `localhost:18280` / `localhost:19090` |
@@ -493,11 +553,13 @@ quit
 在宿主机检查三个节点的角色和四字命令响应：
 
 ```bash
-echo ruok | nc localhost 2181
-echo stat | nc localhost 2181
-echo stat | nc localhost 2182
-echo stat | nc localhost 2183
+echo ruok | nc localhost 12181
+echo stat | nc localhost 12181
+echo stat | nc localhost 12182
+echo stat | nc localhost 12183
 ```
+> 注：以上为**宿主机**侧端口（12181/12182/12183）。容器内部仍是标准 2181，
+> 因此在容器内执行 `zkServer.sh status`、或 Kafka 配置里的 `zoo1:2181` 均无需改动。
 
 ### Kafka：Topic、生产者和消费者
 
@@ -535,6 +597,32 @@ kafka-consumer-groups.sh --describe --group test-group --bootstrap-server kafka1
 # 清理 Topic
 kafka-topics.sh --delete --topic test-topic --bootstrap-server kafka1:9092
 ```
+
+#### 在 client 开发容器里用 Python 生产 / 消费
+
+启动 Kafka 后，可在 `client` 容器用两个独立程序完成生产者、消费者任务（详见
+`examples/client/README.md` 第 3.1 节）：
+
+```bash
+docker exec -it client bash -l
+cd /workspace
+python3 python/kafka_producer.py --topic client-demo --count 5   # 生产者
+python3 python/kafka_consumer.py --topic client-demo --max 5     # 消费者（从头读）
+```
+
+程序连容器内部服务名 `kafka1/2/3:9092`，无需宿主机端口映射。
+
+#### 运维说明：Windows 保留端口与 ClusterId 自愈
+
+- **ZooKeeper 宿主机端口为 `12181/12182/12183`**（容器内仍是标准 2181）。Windows 会把
+  `2180–2279` 划为保留排除区间，若映射到 `2181/2182/2183`，Docker 绑定时报
+  `ports are not available ... bind: forbidden by its access permissions` / HTTP 500。
+  Kafka 通过内部服务名 `zoo1:2181` 连接，不受此改动影响。
+- **Kafka clusterId 自愈**：`scripts/kafka-entrypoint.sh` 在启动前比对本地
+  `meta.properties` 与 ZooKeeper 的 `/cluster/id`。当两者不一致、或 ZK 是全新集群
+  （尚无数个节点注册、读不到 `/cluster/id`）时，会删除本地残留的 `meta.properties`
+  让 broker 全新注册，避免 `InconsistentClusterIdException` 导致首次启动退出。
+  因此删除/重建 ZK 卷后无需手工清理 Kafka 数据目录。
 
 ### Spark：Scala、PySpark、Standalone、YARN与Spark SQL
 
@@ -767,24 +855,25 @@ config/
 
 独立组件由各自 entrypoint 将 `config/<component>/` 复制或挂载到组件目录。五节点模式由 `scripts/all-in-one-entrypoint.sh` 根据角色从 `config/all-in-one/` 复制配置。
 
-### 配置设计与后续整理
+### 配置设计与维护约定
 
-当前运行配置以正确性和教学可读性为先。Compose 负责五节点资源预算，entrypoint 提供缺省值，组件配置文件保留关键字段的用途、原理和角色说明。目录级合并仍应分阶段进行，并在每一步后运行组件测试。
+当前运行配置以正确性和教学可读性为先。Compose 负责五节点资源预算，entrypoint 提供缺省值，组件配置文件保留关键字段的用途、原理和角色说明。
 
-| 类型 | 当前设计或发现 | 维护建议 |
-|---|---|---|
-| P1 待办 | `config/all-in-one/hadoop/` 的两个文件与角色目录重复，且启动脚本不引用该目录 | 验证无外部使用者后删除重复目录 |
-| P1 待办 | `config/supervisor/conf.d/` 是旧版角色配置；实际运行使用 `config/all-in-one/supervisor/` | 保留 `supervisord.conf`，删除或归档旧 `conf.d` |
-| 内存设计 | 不保留未被加载的 `memory-optimization.conf` | Compose 是内存预算权威入口，entrypoint 仅提供缺省值 |
-| P1 待办 | 启动脚本仍兼容读取可选的 `/config/all-in-one/environment.conf` | 决定删除兼容分支，或创建并正式挂载该文件 |
-| P1 待办 | Hadoop master/worker 仍有可合并的公共连接参数 | 设计公共配置后再收敛，保留角色差异 |
-| P1 待办 | HBase master/worker 的 `rootdir`、ZooKeeper 和端口配置重复 | 尝试共用一份 `hbase-site.xml` |
-| Hadoop 设计 | 五节点 Hadoop 使用 9866/9864、`dfs.permissions.enabled`，并提供 `mapred-site.xml` | 后续变更继续运行 MapReduce 与 Spark on YARN 测试 |
-| 计算引擎内存 | Flink 使用统一进程内存；Spark 区分守护进程、Worker、Driver 和 Executor | 保持 Compose 显式预算、entrypoint 缺省值、配置文件解释字段含义 |
-| JVM 内存 | Hadoop、HBase、Kafka、Hive 的堆内存通过环境变量统一传入 | 新增服务时将实际进程参数纳入综合测试 |
-| 建议保留 | Hadoop HA 的 QJM/ZKFC、Kafka Broker ID、Flume Source-Channel-Sink 配置 | 这些内容体现核心教学概念，不宜为了减少行数而隐藏 |
+| 主题 | 约定 |
+|---|---|
+| 内存预算 | Compose 是权威入口，entrypoint 仅提供缺省值；不保留未被加载的 `memory-optimization.conf` |
+| Hadoop | 五节点使用 9866/9864、`dfs.permissions.enabled`，并提供 `mapred-site.xml`；变更后运行 MapReduce 与 Spark on YARN 测试 |
+| 计算引擎内存 | Flink 使用统一进程内存；Spark 区分守护进程、Worker、Driver 和 Executor |
+| JVM 内存 | Hadoop、HBase、Kafka、Hive 的堆内存通过环境变量统一传入 |
+| 教学可读性 | 保留 Hadoop HA 的 QJM/ZKFC、Kafka Broker ID、Flume Source-Channel-Sink 等体现核心概念的配置 |
 
-详细任务和验收标准见 [Todo.md](Todo.md)。
+配置或编排变更后，建议按以下顺序验收：
+
+1. 所有 `docker-compose*.yml` 执行 `docker compose config --quiet` 通过。
+2. XML / YAML / Properties 语法与配置引用路径正确。
+3. 对应组件测试通过；涉及五节点时再运行 `test/cluster-test.sh`。
+4. README 与 CLI_USAGE.md 中的容器名、端口和命令同步更新。
+5. 在干净数据卷上复现一次启动，不依赖残留运行数据。
 
 ## 配置可视化工具
 
@@ -1023,20 +1112,29 @@ docker exec master tail -f /var/log/health-monitor-stdout.log
 
 ```text
 .
-├── config/                       # 独立组件与五节点配置
+├── config/                       # 独立组件、HA 与五节点配置
 ├── config-visualizer/            # PyQt5 配置编辑器
 ├── data/                         # 本地日志和运行数据，Git 默认忽略
+├── docker-manager/               # 网页管理端：relay、页面与启动脚本
+│   ├── docker-relay.py           # 纯标准库 HTTP / WebSocket 服务，含账号与用户隔离
+│   ├── start.bat / start.sh       # 本机 127.0.0.1:8000
+│   └── start-lan.bat / start-lan.sh  # 局域网 0.0.0.0:8000（学生访问）
+├── examples/
+│   ├── client/                  # client 容器示例（进镜像，增量投放到 /workspace）
+│   └── course/                   # 宿主机 PySpark 讲义与演示脚本
 ├── module/                       # 离线安装包，Git 默认忽略
-├── scripts/                      # entrypoint、网络和版本脚本
+├── scripts/                      # entrypoint、初始化、网络与版本脚本
+├── stacks/                       # 学生专属 compose / 数据 / 代码，Git 默认忽略
 ├── test/                         # 组件测试与全栈测试
-├── dockerfile.base               # Ubuntu + OpenJDK 8 基础镜像
-├── dockerfile.<component>        # 独立组件镜像
+├── workspace/                    # 主平台 client 挂载代码，Git 默认忽略
+├── dockerfile.base / dockerfile.<component> / dockerfile.client
 ├── dockerfile.all-in-one         # 五节点统一镜像
-├── docker-compose.<component>.yml
+├── docker-compose.<component>.yml / docker-compose.client.yml
 ├── docker-compose.5-node-cluster.yml
-├── bigdata-cli.sh / .bat         # Linux/WSL 与 Windows 管理入口
-├── CLI_USAGE.md
-├── Todo.md
+├── bigdata-cli.sh / .bat         # 英文 CLI（Linux/WSL 与 Windows）
+├── bigdata-cli-zh.sh / .bat      # 中文 CLI（.bat 为 GBK + CRLF）
+├── README.md / CLI_USAGE.md
+├── PySpark教学操作手册.md
 └── 安装docker desktop.md
 ```
 
@@ -1045,13 +1143,16 @@ docker exec master tail -f /var/log/health-monitor-stdout.log
 | 目录/文件 | 主要作用 |
 |---|---|
 | `config/` | 独立组件、HA、五节点角色和 Supervisor 配置 |
+| `docker-manager/` | 网页管理端；`users.json` 存放账号哈希，严禁提交 |
+| `examples/` | 教学示例；`client/` 进镜像，`course/` 供宿主机课堂演示 |
 | `scripts/` | 容器 entrypoint、初始化、网络与版本同步 |
 | `test/` | 独立组件、HA、集成链路和五节点测试 |
 | `module/` | 离线安装包与 JDBC/Guava 兼容依赖 |
 | `data/` | 本地挂载日志和运行数据，不应提交到 Git |
-| `dockerfile.*` | 基础镜像、独立组件镜像和统一全栈镜像 |
+| `stacks/` / `workspace/` | 学生专属环境生成物与主平台挂载代码，均为运行态目录 |
+| `dockerfile.*` | 基础镜像、独立组件镜像、client 与统一全栈镜像 |
 | `docker-compose.*.yml` | 服务、网络、端口和数据卷编排 |
-| `bigdata-cli.sh` | 镜像、容器、日志、状态和测试的统一入口 |
+| `bigdata-cli*.sh/.bat` | 镜像、容器、日志、状态和测试的命令行入口（中 / 英文） |
 
 ## 安全与生产边界
 

@@ -1,0 +1,47 @@
+# ============================================================
+# Docker 构建上下文排除清单
+# 作用：docker build 时只把构建必需内容发给 daemon，
+#       缩小上下文体积、加快传输（尤其是 module/ 之外的大目录）。
+# 注意：module/（离线安装包）、config/、scripts/、examples/client/
+#       是 dockerfile.client 的 COPY 源，绝不能出现在这里！
+#       examples/course/ 是宿主机教学讲义，不属于镜像内容，直接排除。
+# ============================================================
+
+# 版本库与工作区数据
+.git/
+.gitignore
+.workbuddy/
+
+# 多用户运行态（含密码哈希）
+docker-manager/users.json
+docker-manager/users.json.tmp
+stacks/
+
+# 运行态代码目录（用户挂载卷）
+workspace/
+data/
+logs/
+
+# 宿主机教学讲义（Windows / conda 本地运行，不进镜像）
+examples/course/
+
+# 打包与备份
+Bigdata.zip
+*.bak
+*.backup
+
+# 前端资源与测试产物
+docker-manager/vendor/
+**/__pycache__/
+*.pyc
+
+# 文档类（构建不需要）
+*.md
+!examples/client/README.md
+
+# 其他与镜像无关
+.vscode/
+.idea/
+*.log
+*.tmp
+*.temp

@@ -461,7 +461,7 @@ quit()
 
 ## 8. 使用 spark-submit 提交 PySpark 文件
 
-交互式 Shell 适合逐行讲解，`spark-submit` 更接近实际作业运行方式。本项目提供了 `test/pyspark-smoke.py`，其中包含 RDD、DataFrame 和 Executor Python Worker 检查；`DEMO` 目录还提供了适合课堂阅读的本地版、Docker 版和 HDFS 读写版示例。
+交互式 Shell 适合逐行讲解，`spark-submit` 更接近实际作业运行方式。本项目提供了 `test/pyspark-smoke.py`，其中包含 RDD、DataFrame 和 Executor Python Worker 检查；`examples/course` 目录还提供了适合课堂阅读的本地版、Docker 版和 HDFS 读写版示例。
 
 直接执行 `python Python文件.py` 时，PySpark 内部仍会启动 Java Gateway 和 Spark 提交程序。显式使用 `spark-submit` 的主要优势是可以在命令行统一指定 Master、部署模式、Driver 参数、Executor 参数和第三方依赖，因此更适合正式作业和课堂演示“提交端—Driver—Executor”的关系。
 
@@ -657,7 +657,7 @@ PySpark 代码使用 Python 编写，但 Spark 的 Driver、Spark SQL 和调度�
 
 | 运行方式 | Windows 是否需要 Java |
 |---|---|
-| Windows 执行 `python DEMO\pyspark-example-local.py` | 需要，Java Gateway 和 Driver JVM 在 Windows 启动 |
+| Windows 执行 `python examples\course\pyspark-example-local.py` | 需要，Java Gateway 和 Driver JVM 在 Windows 启动 |
 | Windows 执行 `spark-submit.cmd ...` | 需要，提交脚本会在 Windows 启动 Driver JVM |
 | Windows 执行 `docker exec spark-master spark-submit ...` | 不需要，Driver 和 Java 都在 `spark-master` 容器内运行 |
 
@@ -756,8 +756,8 @@ Using Scala version 2.12.10
 ```powershell
 spark-submit.cmd `
   --master spark://127.0.0.1:17077 `
-  --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/DEMO/log4j-local.properties" `
-  DEMO\pyspark-example-local.py
+  --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/examples/course/log4j-local.properties" `
+  examples\course\pyspark-example-local.py
 ```
 
 参数说明：
@@ -775,8 +775,8 @@ spark-submit.cmd `
 ```powershell
 spark-submit.cmd `
   --master spark://127.0.0.1:17077 `
-  --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/DEMO/log4j-local.properties" `
-  DEMO\pyspark-hdfs-example-local.py
+  --driver-java-options "-Dlog4j.configuration=file:///E:/Programs/Bigdata/examples/course/log4j-local.properties" `
+  examples\course\pyspark-hdfs-example-local.py
 ```
 
 该程序执行以下步骤：
@@ -809,7 +809,7 @@ docker compose -f docker-compose.spark.yml ps
 提交普通 DataFrame 示例：
 
 ```powershell
-docker cp DEMO\pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
+docker cp examples\course\pyspark-example-docker.py spark-master:/tmp/pyspark-example.py
 
 docker exec spark-master `
   /opt/spark/bin/spark-submit `
@@ -820,7 +820,7 @@ docker exec spark-master `
 提交 HDFS 读写示例：
 
 ```powershell
-docker cp DEMO\pyspark-hdfs-example-docker.py spark-master:/tmp/pyspark-hdfs-example.py
+docker cp examples\course\pyspark-hdfs-example-docker.py spark-master:/tmp/pyspark-hdfs-example.py
 
 docker exec spark-master `
   /opt/spark/bin/spark-submit `
@@ -838,7 +838,7 @@ Docker 版使用以下地址：
 
 虽然 NameNode 当前可能显示为 `172.18.0.3`，示例仍应优先使用 `namenode`。容器重建可能改变 IP，Docker DNS 服务名则保持稳定。
 
-### 8.5 DEMO 示例的预期结果
+### 8.5 examples/course 示例的预期结果
 
 普通版和 HDFS 版最终都应得到：
 
